@@ -172,6 +172,28 @@ test("keeps paragraphs wrapped when a list item holds several blocks", () => {
 	assert.equal(renderMarkdown("- one"), "<ul><li>one</li></ul>");
 });
 
+test("code blocks inside list items keep their inner indentation", () => {
+	// Continuation lines are dedented by the item's content column, not trimmed
+	// flat — trimming erased the indentation inside this fenced block.
+	assert.equal(
+		renderMarkdown("- item\n  ```\n  if (x) {\n      nested();\n  }\n  ```"),
+		"<ul><li><p>item</p>\n<pre><code>if (x) {\n    nested();\n}</code></pre></li></ul>",
+	);
+
+	// A wider marker moves the content column with it.
+	assert.equal(
+		renderMarkdown("10. item\n    ```\n        code\n    ```"),
+		'<ol start="10"><li><p>item</p>\n<pre><code>    code</code></pre></li></ol>',
+	);
+
+	// Four columns past the content column after a gap is an indented code
+	// block, judged by the same rule it would meet at top level.
+	assert.equal(
+		renderMarkdown("- a\n\n      code"),
+		"<ul><li><p>a</p>\n<pre><code>code</code></pre></li></ul>",
+	);
+});
+
 test("indented lines continue a paragraph instead of starting code", () => {
 	assert.equal(
 		renderMarkdown("A sentence that\n    continues indented."),

@@ -418,17 +418,40 @@
 	}
 
 	function listMatch(line) {
-		const match = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
+		const match = line.match(/^(\s*)([-+*]|\d+[.)])(\s+)(.+)$/);
 		if (!match) {
 			return null;
 		}
 
 		return {
-			content: match[3],
+			content: match[4],
 			indent: match[1].replaceAll("\t", "    ").length,
+			// The column where the item's content begins, which is what a
+			// continuation line must be dedented by to mean what it would at
+			// top level — no more, or a code block inside the item flattens.
+			contentIndent: (match[1] + match[2] + match[3]).replaceAll("\t", "    ").length,
 			ordered: /^\d/.test(match[2]),
 			start: /^\d/.test(match[2]) ? Number.parseInt(match[2], 10) : null,
 		};
+	}
+
+	// Removes leading whitespace up to `width` columns, tabs counting four as
+	// indentWidth judges them; whatever indent the line carries past that point
+	// is meaningful and stays.
+	function dedent(line, width) {
+		let column = 0;
+		let index = 0;
+		while (index < line.length && column < width) {
+			if (line[index] === " ") {
+				column += 1;
+			} else if (line[index] === "\t") {
+				column += 4;
+			} else {
+				break;
+			}
+			index += 1;
+		}
+		return line.slice(index);
 	}
 
 	function indentWidth(line) {
@@ -502,7 +525,7 @@
 						if (depth >= MAX_NESTING_DEPTH) {
 							// Too deep to open another list; fold the line into this item
 							// instead, which also guarantees index still advances.
-							contentLines.push(lines[index].trim());
+							contentLines.push(dedent(lines[index], item.contentIndent));
 							index += 1;
 							continue;
 						}
@@ -530,7 +553,7 @@
 				}
 
 				if (indentWidth(lines[index]) > baseIndent) {
-					contentLines.push(lines[index].trim());
+					contentLines.push(dedent(lines[index], item.contentIndent));
 					index += 1;
 					continue;
 				}
