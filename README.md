@@ -10,9 +10,9 @@ It supports:
 - inline and fenced code
 - blockquotes and horizontal rules
 - ordered, unordered, and nested lists
-- web, email, relative-file, and relative-Markdown links
+- web, email, and relative-Markdown links
 
-Raw HTML is displayed as text rather than executed.
+Raw HTML is displayed as text rather than executed. Links to relative Markdown files open in the viewer; links to other local files are ignored, so a document can never ask the system to open or run a file.
 
 ## Run it
 

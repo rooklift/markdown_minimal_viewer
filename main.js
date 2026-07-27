@@ -5,6 +5,7 @@ const path = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require("electron");
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MARKDOWN_EXTENSION = /\.(?:md|mdown|markdown)$/i;
 
 let mainWindow;
 let currentFile = null;
@@ -12,7 +13,7 @@ let queuedFile = null;
 
 function findCommandLineFile() {
 	const args = process.argv.slice(app.isPackaged ? 1 : 2);
-	return args.find((argument) => !argument.startsWith("-") && /\.md(?:own)?$/i.test(argument));
+	return args.find((argument) => !argument.startsWith("-") && MARKDOWN_EXTENSION.test(argument));
 }
 
 async function readDocument(filePath) {
@@ -222,12 +223,19 @@ ipcMain.handle("viewer:open-link", async (_event, target) => {
 	}
 
 	const withoutFragment = trimmed.split("#", 1)[0];
-	const decodedPath = decodeURIComponent(withoutFragment);
+
+	let decodedPath;
+	try {
+		decodedPath = decodeURIComponent(withoutFragment);
+	} catch {
+		return;
+	}
+
 	const resolvedPath = path.resolve(currentFile ? path.dirname(currentFile) : process.cwd(), decodedPath);
 
-	if (/\.md(?:own)?$/i.test(resolvedPath)) {
+	// Relative links may only ever open Markdown, and only ever inside the viewer.
+	// Handing other paths to the shell would let a document execute local files.
+	if (MARKDOWN_EXTENSION.test(resolvedPath)) {
 		await openDocument(resolvedPath);
-	} else {
-		await shell.openPath(resolvedPath);
 	}
 });
