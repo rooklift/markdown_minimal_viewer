@@ -156,6 +156,14 @@ function createWindow() {
 	mainWindow.loadFile("renderer.html");
 	mainWindow.once("ready-to-show", () => mainWindow.show());
 	mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	// The window only ever shows renderer.html; links are opened via IPC, so any
+	// navigation elsewhere (e.g. a dragged link) is something to block. Same-URL
+	// navigation stays allowed because reload arrives through this event too.
+	mainWindow.webContents.on("will-navigate", (event, url) => {
+		if (url !== mainWindow.webContents.getURL()) {
+			event.preventDefault();
+		}
+	});
 	mainWindow.on("closed", () => {
 		mainWindow = null;
 	});
