@@ -6,6 +6,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require("electron")
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MARKDOWN_EXTENSION = /\.(?:md|mdown|markdown)$/i;
+const DROPPABLE_EXTENSION = /\.(?:md|mdown|markdown|txt)$/i;
 const LINK_SCHEME = /^(?:https?|mailto):/i;
 const CONTROL_CHARACTER = new RegExp("[\\u0000-\\u001f\\u007f]");
 
@@ -218,9 +219,16 @@ ipcMain.handle("viewer:get-initial-document", async () => {
 
 ipcMain.handle("viewer:open-dialog", () => showOpenDialog());
 
+// A drop is the one case where the renderer names a file, and the main process
+// cannot tell a genuine drop from any other call on this channel. Holding the
+// path to the file types the viewer is for means even a compromised renderer
+// can read nothing more sensitive than the documents the app already shows.
 ipcMain.handle("viewer:open-dropped-file", (_event, filePath) => {
 	if (typeof filePath !== "string" || filePath.length === 0) {
 		throw new Error("The dropped item does not have a valid file path.");
+	}
+	if (!DROPPABLE_EXTENSION.test(filePath)) {
+		throw new Error("Only Markdown and plain text files can be dropped here.");
 	}
 	return readDocument(filePath);
 });
