@@ -9,7 +9,7 @@ function displayDocument(markdownDocument) {
 	}
 
 	documentView.innerHTML = window.markdown.renderMarkdown(markdownDocument.content);
-	documentView.scrollTo(0, 0);
+	window.scrollTo(0, 0);
 	documentView.focus({ preventScroll: true });
 	fileName.textContent = markdownDocument.path;
 	fileName.title = markdownDocument.path;

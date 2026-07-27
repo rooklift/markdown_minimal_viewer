@@ -29,7 +29,6 @@
 
 html,
 body {
-	height: 100%;
 	margin: 0;
 }
 
@@ -90,9 +89,10 @@ body.dragging::before {
 	white-space: nowrap;
 }
 
+/* The page itself scrolls, rather than this element: the viewport scrollbar
+   sits outside the layout viewport, so the fixed toolbar cannot cover its
+   upper end the way it covered an inner scrollbar's. */
 .document {
-	height: 100%;
-	overflow: auto;
 	padding: 6rem max(1.5rem, calc((100vw - 46rem) / 2)) 8rem;
 }
 
