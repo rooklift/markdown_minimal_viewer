@@ -1,6 +1,11 @@
 (function exposeMarkdownRenderer(globalObject) {
 	"use strict";
 
+	// Blocks, lists, and inline spans all recurse. Real documents nest a handful of
+	// levels deep; a hostile one nests thousands and exhausts the stack, so past this
+	// limit the remaining content is rendered as plain text instead of recursing.
+	const MAX_NESTING_DEPTH = 64;
+
 	function escapeHtml(value) {
 		return String(value)
 			.replaceAll("&", "&amp;")
@@ -35,7 +40,11 @@
 		return -1;
 	}
 
-	function renderInline(text) {
+	function renderInline(text, depth = 0) {
+		if (depth > MAX_NESTING_DEPTH) {
+			return escapeHtml(text);
+		}
+
 		let html = "";
 		let index = 0;
 
@@ -67,7 +76,7 @@
 						const target = safeLinkTarget(rawTarget);
 						if (target) {
 							const attribute = escapeHtml(target);
-							html += `<a href="${attribute}" data-href="${attribute}" rel="noreferrer">${renderInline(label)}</a>`;
+							html += `<a href="${attribute}" data-href="${attribute}" rel="noreferrer">${renderInline(label, depth + 1)}</a>`;
 							index = targetEnd + 1;
 							continue;
 						}
@@ -79,7 +88,7 @@
 			if (strongMarker) {
 				const end = findClosingBracket(text, index + 2, strongMarker);
 				if (end > index + 2) {
-					html += `<strong>${renderInline(text.slice(index + 2, end))}</strong>`;
+					html += `<strong>${renderInline(text.slice(index + 2, end), depth + 1)}</strong>`;
 					index = end + 2;
 					continue;
 				}
@@ -89,7 +98,7 @@
 				const marker = text[index];
 				const end = findClosingBracket(text, index + 1, marker);
 				if (end > index + 1) {
-					html += `<em>${renderInline(text.slice(index + 1, end))}</em>`;
+					html += `<em>${renderInline(text.slice(index + 1, end), depth + 1)}</em>`;
 					index = end + 1;
 					continue;
 				}
@@ -144,7 +153,7 @@
 		return match ? match[1] : html;
 	}
 
-	function renderList(lines, startIndex) {
+	function renderList(lines, startIndex, depth = 0) {
 		const first = listMatch(lines[startIndex]);
 		const baseIndent = first.indent;
 		const ordered = first.ordered;
@@ -167,7 +176,14 @@
 				const nestedItem = listMatch(lines[index]);
 				if (nestedItem) {
 					if (nestedItem.indent > baseIndent) {
-						const nested = renderList(lines, index);
+						if (depth >= MAX_NESTING_DEPTH) {
+							// Too deep to open another list; fold the line into this item
+							// instead, which also guarantees index still advances.
+							contentLines.push(lines[index].trim());
+							index += 1;
+							continue;
+						}
+						const nested = renderList(lines, index, depth + 1);
 						nestedHtml += nested.html;
 						index = nested.nextIndex;
 						continue;
@@ -188,7 +204,7 @@
 				break;
 			}
 
-			const content = unwrapSingleParagraph(renderBlocks(contentLines).html);
+			const content = unwrapSingleParagraph(renderBlocks(contentLines, 0, depth + 1).html);
 			html += `<li>${content}${nestedHtml}</li>`;
 		}
 
@@ -196,7 +212,14 @@
 		return { html, nextIndex: index };
 	}
 
-	function renderBlocks(lines, initialIndex = 0) {
+	function renderBlocks(lines, initialIndex = 0, depth = 0) {
+		// Only ever reached through a nested call, where `lines` is a slice of one
+		// block's own content, so consuming the rest of it here is contained.
+		if (depth > MAX_NESTING_DEPTH) {
+			const text = lines.slice(initialIndex).join("\n").trim();
+			return { html: text === "" ? "" : `<p>${escapeHtml(text)}</p>`, nextIndex: lines.length };
+		}
+
 		const output = [];
 		let index = initialIndex;
 
@@ -251,7 +274,7 @@
 					quoteLines.push(lines[index].replace(/^ {0,3}>\s?/, ""));
 					index += 1;
 				}
-				output.push(`<blockquote>${renderBlocks(quoteLines).html}</blockquote>`);
+				output.push(`<blockquote>${renderBlocks(quoteLines, 0, depth + 1).html}</blockquote>`);
 				continue;
 			}
 
@@ -266,7 +289,7 @@
 			}
 
 			if (listMatch(line)) {
-				const list = renderList(lines, index);
+				const list = renderList(lines, index, depth);
 				output.push(list.html);
 				index = list.nextIndex;
 				continue;
