@@ -154,6 +154,10 @@ test("pathological delimiter runs render in linear time", () => {
 		// the rest of the text. The leading letter keeps the line a paragraph rather
 		// than a cheap code fence.
 		"a" + "`".repeat(200000),
+		// Every hard break spliced its two spaces back out of the rendered string,
+		// flattening the whole accumulation each time. The letters keep the lines
+		// non-blank, so this is one paragraph rather than many.
+		"a  \n".repeat(200000),
 	];
 
 	for (const text of cases) {
@@ -185,4 +189,9 @@ test("renders blockquotes, rules, and hard breaks", () => {
 	assert.match(html, /<blockquote><p>quoted<\/p><\/blockquote>/);
 	assert.match(html, /<hr>/);
 	assert.match(html, /first<br>second/);
+
+	// The whole run of trailing spaces becomes the break, however long, and a
+	// single trailing space is not a break at all.
+	assert.equal(renderMarkdown("first    \nsecond"), "<p>first<br>second</p>");
+	assert.equal(renderMarkdown("first \nsecond"), "<p>first  second</p>");
 });

@@ -248,13 +248,25 @@
 				}
 			}
 
-			if (text[index] === "\n") {
-				const hardBreak = index >= 2 && text.slice(index - 2, index) === "  ";
-				if (hardBreak) {
-					html = html.slice(0, -2) + "<br>";
+			// Spaces are taken as a whole run so a hard break replaces its trailing
+			// spaces as they are met, never after the fact: splicing them back out of
+			// the rendered string re-flattened it each time, which made a paragraph
+			// of hard breaks quadratic. Every other construct ends at a delimiter,
+			// so a run before a newline can never have been partly consumed.
+			if (text[index] === " ") {
+				const end = runEnd(text, index, " ");
+				if (text[end] === "\n" && end - index >= 2) {
+					html += "<br>";
+					index = end + 1;
 				} else {
-					html += " ";
+					html += text.slice(index, end);
+					index = end;
 				}
+				continue;
+			}
+
+			if (text[index] === "\n") {
+				html += " ";
 				index += 1;
 				continue;
 			}
