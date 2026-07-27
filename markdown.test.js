@@ -41,6 +41,48 @@ test("only http, https, and mailto targets become links", () => {
 	}
 });
 
+test("link targets may contain balanced parentheses", () => {
+	// Wikipedia-style URLs end in a parenthesised disambiguator, so the target
+	// must close at the first ")" that is not matching a "(" opened inside it.
+	assert.equal(
+		renderMarkdown("[rust](https://en.wikipedia.org/wiki/Rust_(programming_language))"),
+		'<p><a href="https://en.wikipedia.org/wiki/Rust_(programming_language)"'
+			+ ' data-href="https://en.wikipedia.org/wiki/Rust_(programming_language)" rel="noreferrer">rust</a></p>',
+	);
+
+	// An unmatched "(" leaves the link unformed rather than truncated early.
+	assert.equal(renderMarkdown("[x](https://a(b)"), "<p>[x](https://a(b)</p>");
+
+	// The first balanced ")" still closes; text after it stays outside.
+	assert.equal(
+		renderMarkdown("[x](https://a) b)"),
+		'<p><a href="https://a" data-href="https://a" rel="noreferrer">x</a> b)</p>',
+	);
+});
+
+test("blank lines between items make one loose list, not two lists", () => {
+	assert.equal(renderMarkdown("- a\n\n- b"), "<ul><li><p>a</p></li><li><p>b</p></li></ul>");
+
+	// The gap may instead sit inside one item: indented content after it still
+	// belongs to the item, as a second paragraph.
+	assert.equal(
+		renderMarkdown("- a\n\n  b\n- c"),
+		"<ul><li><p>a</p>\n<p>b</p></li><li><p>c</p></li></ul>",
+	);
+
+	// Looseness belongs to one list at a time: the gap loosens the outer list
+	// here while the nested list stays tight.
+	assert.equal(
+		renderMarkdown("- a\n  - b\n\n- c"),
+		"<ul><li><p>a</p><ul><li>b</li></ul></li><li><p>c</p></li></ul>",
+	);
+
+	// A list not interrupted by blank lines stays tight, and content at the
+	// list's own indent after a gap still ends it.
+	assert.equal(renderMarkdown("- a\n- b"), "<ul><li>a</li><li>b</li></ul>");
+	assert.equal(renderMarkdown("- a\n\ntext"), "<ul><li>a</li></ul>\n<p>text</p>");
+});
+
 test("escapes raw HTML in prose and code blocks", () => {
 	const html = renderMarkdown("<script>alert('no')</script>\n\n```\n<b>code</b>\n```");
 	assert.doesNotMatch(html, /<script>/);
@@ -158,6 +200,10 @@ test("pathological delimiter runs render in linear time", () => {
 		// flattening the whole accumulation each time. The letters keep the lines
 		// non-blank, so this is one paragraph rather than many.
 		"a  \n".repeat(200000),
+		// Every target scan here fails at a different paren depth, so no memo can
+		// speak for another scan; the balance index answers each in one lookup
+		// where a walk would rescan the rest of the text.
+		"[a]((b)".repeat(32000),
 	];
 
 	for (const text of cases) {

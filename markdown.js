@@ -128,7 +128,48 @@
 		// scan to agree on which characters are escaped, hence the precomputed map
 		// rather than counting backslashes from wherever a scan happens to start.
 		const escaped = escapedPositions(text);
-		const exhausted = { "](": Infinity, ")": Infinity, "*": Infinity, "**": Infinity, _: Infinity, __: Infinity };
+		const exhausted = { "](": Infinity, "*": Infinity, "**": Infinity, _: Infinity, __: Infinity };
+
+		// A link target ends at the first unescaped ")" that is not matching a "("
+		// opened inside it, so a parenthesised URL survives whole. That closer is
+		// the first ")" whose running paren balance equals the scan start's, so
+		// indexing the ")"s by balance turns each search into one binary lookup.
+		// The failed-scan memo cannot cover this marker any more: a failed balance
+		// scan says nothing about later scans, which start at depth zero afresh.
+		const parenBalance = new Int32Array(text.length + 1);
+		const parenClosers = new Map();
+		for (let index = 0; index < text.length; index += 1) {
+			let delta = 0;
+			if (!escaped[index] && text[index] === "(") {
+				delta = 1;
+			} else if (!escaped[index] && text[index] === ")") {
+				delta = -1;
+				let closers = parenClosers.get(parenBalance[index]);
+				if (!closers) {
+					parenClosers.set(parenBalance[index], closers = []);
+				}
+				closers.push(index);
+			}
+			parenBalance[index + 1] = parenBalance[index] + delta;
+		}
+
+		function findClosingParen(start) {
+			const closers = parenClosers.get(parenBalance[start]);
+			if (!closers) {
+				return -1;
+			}
+			let low = 0;
+			let high = closers.length;
+			while (low < high) {
+				const middle = (low + high) >> 1;
+				if (closers[middle] < start) {
+					low = middle + 1;
+				} else {
+					high = middle;
+				}
+			}
+			return low < closers.length ? closers[low] : -1;
+		}
 
 		// longestTickRun[r] is the longest backtick run length from run r onward, so
 		// an opener longer than everything after it fails without walking the runs.
@@ -174,7 +215,7 @@
 			if (start >= exhausted[marker]) {
 				return -1;
 			}
-			const scan = marker === "](" || marker === ")" ? findClosingBracket : findClosingEmphasis;
+			const scan = marker === "](" ? findClosingBracket : findClosingEmphasis;
 			const end = scan(text, escaped, start, marker);
 			if (end === -1) {
 				exhausted[marker] = start;
@@ -212,7 +253,7 @@
 			if (text[index] === "[" && index + 1 > rejectedLabelEnd) {
 				const labelEnd = findCloser(index + 1, "](");
 				if (labelEnd !== -1) {
-					const targetEnd = findCloser(labelEnd + 2, ")");
+					const targetEnd = findClosingParen(labelEnd + 2);
 					if (targetEnd !== -1) {
 						const label = text.slice(index + 1, labelEnd);
 						const rawTarget = text.slice(labelEnd + 2, targetEnd);
@@ -292,6 +333,17 @@
 		};
 	}
 
+	function indentWidth(line) {
+		return (line.match(/^\s*/) || [""])[0].replaceAll("\t", "    ").length;
+	}
+
+	function nextContentLine(lines, index) {
+		while (index < lines.length && lines[index].trim() === "") {
+			index += 1;
+		}
+		return index;
+	}
+
 	function isBlockStart(lines, index) {
 		const line = lines[index] || "";
 		const next = lines[index + 1] || "";
@@ -318,10 +370,24 @@
 		const ordered = first.ordered;
 		const tag = ordered ? "ol" : "ul";
 		const startAttribute = ordered && first.start !== 1 ? ` start="${first.start}"` : "";
-		let html = `<${tag}${startAttribute}>`;
+		const items = [];
+		let loose = false;
 		let index = startIndex;
 
 		while (index < lines.length) {
+			if (lines[index].trim() === "") {
+				// A blank line ends the list only when no sibling item follows it;
+				// when one does, the gap continues the list and makes it loose.
+				const next = nextContentLine(lines, index);
+				const sibling = next < lines.length ? listMatch(lines[next]) : null;
+				if (!sibling || sibling.indent !== baseIndent || sibling.ordered !== ordered) {
+					break;
+				}
+				loose = true;
+				index = next;
+				continue;
+			}
+
 			const item = listMatch(lines[index]);
 			if (!item || item.indent !== baseIndent || item.ordered !== ordered) {
 				break;
@@ -351,11 +417,21 @@
 				}
 
 				if (lines[index].trim() === "") {
-					break;
+					// Anything indented past the marker after a gap still belongs
+					// to this item, split into paragraphs by the gap — which also
+					// makes the list loose. Anything else is the next item's or
+					// the list's end, both the outer loop's to judge.
+					const next = nextContentLine(lines, index);
+					if (next === lines.length || indentWidth(lines[next]) <= baseIndent) {
+						break;
+					}
+					loose = true;
+					contentLines.push("");
+					index = next;
+					continue;
 				}
 
-				const indentation = (lines[index].match(/^\s*/) || [""])[0].replaceAll("\t", "    ").length;
-				if (indentation > baseIndent) {
+				if (indentWidth(lines[index]) > baseIndent) {
 					contentLines.push(lines[index].trim());
 					index += 1;
 					continue;
@@ -363,10 +439,16 @@
 				break;
 			}
 
-			const content = unwrapSingleParagraph(renderBlocks(contentLines, 0, depth + 1).html);
-			html += `<li>${content}${nestedHtml}</li>`;
+			items.push({ contentLines, nestedHtml });
 		}
 
+		// Rendered only now because looseness belongs to the whole list: a gap
+		// before its last item still wraps its first in <p>.
+		let html = `<${tag}${startAttribute}>`;
+		for (const { contentLines, nestedHtml } of items) {
+			const rendered = renderBlocks(contentLines, 0, depth + 1).html;
+			html += `<li>${loose ? rendered : unwrapSingleParagraph(rendered)}${nestedHtml}</li>`;
+		}
 		html += `</${tag}>`;
 		return { html, nextIndex: index };
 	}
