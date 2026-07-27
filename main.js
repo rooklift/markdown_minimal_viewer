@@ -20,6 +20,17 @@ function findCommandLineFile() {
 
 async function readDocument(filePath) {
 	const absolutePath = path.resolve(filePath);
+
+	// A UNC path names a host as well as a file, and merely reading it opens a
+	// network connection that can offer that host the user's credentials. This
+	// viewer reads local files only, so every route a path can arrive by — drop,
+	// dialog, command line, open-file event — is refused here, before any part
+	// of it touches the filesystem. Device paths (\\.\ and \\?\) resolve to the
+	// same leading double separator and are no more welcome.
+	if (/^[\\/]{2}/.test(absolutePath)) {
+		throw new Error("Network paths are not supported.");
+	}
+
 	const stats = await fs.stat(absolutePath);
 
 	if (!stats.isFile()) {
@@ -219,8 +230,9 @@ ipcMain.handle("viewer:get-initial-document", async () => {
 
 // A drop is the one case where the renderer names a file, and the main process
 // cannot tell a genuine drop from any other call on this channel. Holding the
-// path to the file types the viewer is for means even a compromised renderer
-// can read nothing more sensitive than the documents the app already shows.
+// path to the file types the viewer is for — and, in readDocument, to this
+// machine — means even a compromised renderer can read nothing more sensitive
+// than the documents the app already shows, and can reach no other host.
 ipcMain.handle("viewer:open-dropped-file", (_event, filePath) => {
 	if (typeof filePath !== "string" || filePath.length === 0) {
 		throw new Error("The dropped item does not have a valid file path.");

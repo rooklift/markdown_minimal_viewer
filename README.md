@@ -12,7 +12,7 @@ It supports:
 - ordered, unordered, and nested lists
 - web and email links
 
-Raw HTML is displayed as text rather than executed. Only `http`, `https`, and `mailto` links are live, and they open in your browser or mail client rather than in the viewer. Every other target — a relative path, an absolute one, another scheme, a `#fragment` — is shown as plain text, so a document has no way to name a local file, let alone make the viewer read one or the system open one. Files are opened only when you ask for one.
+Raw HTML is displayed as text rather than executed. Only `http`, `https`, and `mailto` links are live, and they open in your browser or mail client rather than in the viewer. Every other target — a relative path, an absolute one, another scheme, a `#fragment` — is shown as plain text, so a document has no way to name a local file, let alone make the viewer read one or the system open one. Files are opened only when you ask for one, and only from the local disk: network (UNC) paths are refused everywhere, since merely reading one opens a connection to the host it names.
 
 ## Run it
 
