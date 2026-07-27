@@ -5,8 +5,10 @@ const path = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require("electron");
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const MARKDOWN_EXTENSION = /\.(?:md|mdown|markdown)$/i;
-const DROPPABLE_EXTENSION = /\.(?:md|mdown|markdown|txt)$/i;
+// One extension list for every route a path arrives by unasked — command line
+// and drop — so a file that opens one way opens the other. The Open dialog is
+// the user choosing deliberately, so it may offer anything.
+const OPENABLE_EXTENSION = /\.(?:md|mdown|markdown|txt)$/i;
 const LINK_SCHEME = /^(?:https?|mailto):/i;
 const CONTROL_CHARACTER = new RegExp("[\\u0000-\\u001f\\u007f]");
 
@@ -15,7 +17,7 @@ let queuedFile = null;
 
 function findCommandLineFile() {
 	const args = process.argv.slice(app.isPackaged ? 1 : 2);
-	return args.find((argument) => !argument.startsWith("-") && MARKDOWN_EXTENSION.test(argument));
+	return args.find((argument) => !argument.startsWith("-") && OPENABLE_EXTENSION.test(argument));
 }
 
 async function readDocument(filePath) {
@@ -58,7 +60,7 @@ async function showOpenDialog() {
 	const result = await dialog.showOpenDialog(mainWindow, {
 		properties: ["openFile"],
 		filters: [
-			{ name: "Markdown", extensions: ["md", "markdown"] },
+			{ name: "Markdown", extensions: ["md", "mdown", "markdown"] },
 			{ name: "Text", extensions: ["txt"] },
 			{ name: "All files", extensions: ["*"] },
 		],
@@ -237,7 +239,7 @@ ipcMain.handle("viewer:open-dropped-file", (_event, filePath) => {
 	if (typeof filePath !== "string" || filePath.length === 0) {
 		throw new Error("The dropped item does not have a valid file path.");
 	}
-	if (!DROPPABLE_EXTENSION.test(filePath)) {
+	if (!OPENABLE_EXTENSION.test(filePath)) {
 		throw new Error("Only Markdown and plain text files can be dropped here.");
 	}
 	return readDocument(filePath);
