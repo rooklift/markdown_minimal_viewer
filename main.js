@@ -102,6 +102,16 @@ function buildMenu() {
 			],
 		},
 		{
+			// The viewer has no editable text, so copying is the whole menu — but the
+			// menu must exist: on macOS the clipboard shortcuts only reach the page
+			// through menu roles, so without it Cmd+C and Cmd+A do nothing.
+			label: "Edit",
+			submenu: [
+				{ role: "copy" },
+				{ role: "selectAll" },
+			],
+		},
+		{
 			label: "View",
 			submenu: [
 				{ role: "reload" },
