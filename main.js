@@ -44,7 +44,9 @@ async function readDocument(filePath) {
 		throw new Error("Markdown files must be smaller than 10 MB.");
 	}
 
-	const content = await fs.readFile(absolutePath, "utf8");
+	// Node keeps a leading UTF-8 BOM, and an invisible character in front of
+	// a "#" would stop the parser recognising the first heading.
+	const content = (await fs.readFile(absolutePath, "utf8")).replace(/^\uFEFF/, "");
 
 	if (mainWindow && !mainWindow.isDestroyed()) {
 		mainWindow.setTitle(`${path.basename(absolutePath)} — Minimal Markdown Viewer`);
