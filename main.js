@@ -206,18 +206,13 @@ app.whenReady().then(() => {
 	createWindow();
 	Menu.setApplicationMenu(buildMenu());
 	queuedFile ||= findCommandLineFile();
-
-	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0) {
-			createWindow();
-		}
-	});
 });
 
+// Quitting on every platform — contrary to the macOS convention — means the app
+// can never run windowless, a state in which File → Open read documents and
+// silently dropped them because there was no renderer to send them to.
 app.on("window-all-closed", () => {
-	if (process.platform !== "darwin") {
-		app.quit();
-	}
+	app.quit();
 });
 
 ipcMain.handle("viewer:get-initial-document", async () => {
