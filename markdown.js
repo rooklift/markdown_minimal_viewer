@@ -29,11 +29,22 @@
 		return target;
 	}
 
-	function findClosingBracket(text, start, marker) {
+	// escaped[i] is 1 when text[i] sits behind an odd run of backslashes. Judged once
+	// from the left of the whole string, so every scan agrees on what is escaped no
+	// matter where it starts — which is what lets a failed scan speak for later ones.
+	function escapedPositions(text) {
+		const escaped = new Uint8Array(text.length);
+		for (let index = 0; index + 1 < text.length; index += 1) {
+			if (text[index] === "\\" && !escaped[index]) {
+				escaped[index + 1] = 1;
+			}
+		}
+		return escaped;
+	}
+
+	function findClosingBracket(text, escaped, start, marker) {
 		for (let index = start; index <= text.length - marker.length; index += 1) {
-			if (text[index] === "\\") {
-				index += 1;
-			} else if (text.startsWith(marker, index)) {
+			if (!escaped[index] && text.startsWith(marker, index)) {
 				return index;
 			}
 		}
@@ -64,15 +75,11 @@
 
 	// One linear pass. A rejected `_` run is skipped whole rather than re-scanned from
 	// its second character, which keeps pathological delimiter runs from going quadratic.
-	function findClosingEmphasis(text, start, marker) {
+	function findClosingEmphasis(text, escaped, start, marker) {
 		let index = start;
 
 		while (index <= text.length - marker.length) {
-			if (text[index] === "\\") {
-				index += 2;
-				continue;
-			}
-			if (text.startsWith(marker, index)) {
+			if (!escaped[index] && text.startsWith(marker, index)) {
 				if (marker[0] !== "_") {
 					return index;
 				}
@@ -95,11 +102,12 @@
 		}
 
 		// If no closer exists from one point, none exists from any later point, so a
-		// failed scan is worth remembering: without this a long `_` run rescans the
-		// rest of the text once per character. Backslashes shift the scan's escape
-		// alignment and would break that guarantee, so skip the shortcut when present.
-		const hasEscape = text.includes("\\");
-		const exhausted = { _: Infinity, __: Infinity };
+		// failed scan is worth remembering: without this a long run of `_` or `[`
+		// rescans the rest of the text once per character. That guarantee needs every
+		// scan to agree on which characters are escaped, hence the precomputed map
+		// rather than counting backslashes from wherever a scan happens to start.
+		const escaped = escapedPositions(text);
+		const exhausted = { "](": Infinity, ")": Infinity, "*": Infinity, "**": Infinity, _: Infinity, __: Infinity };
 
 		// Every position in a run shares one run start, and the loop usually steps
 		// through a run one character at a time, so carry the last answer forward
@@ -126,14 +134,12 @@
 		}
 
 		function findCloser(start, marker) {
-			if (marker[0] !== "_") {
-				return findClosingEmphasis(text, start, marker);
-			}
-			if (!hasEscape && start >= exhausted[marker]) {
+			if (start >= exhausted[marker]) {
 				return -1;
 			}
-			const end = findClosingEmphasis(text, start, marker);
-			if (end === -1 && start < exhausted[marker]) {
+			const scan = marker === "](" || marker === ")" ? findClosingBracket : findClosingEmphasis;
+			const end = scan(text, escaped, start, marker);
+			if (end === -1) {
 				exhausted[marker] = start;
 			}
 			return end;
@@ -161,9 +167,9 @@
 			}
 
 			if (text[index] === "[") {
-				const labelEnd = findClosingBracket(text, index + 1, "](");
+				const labelEnd = findCloser(index + 1, "](");
 				if (labelEnd !== -1) {
-					const targetEnd = findClosingBracket(text, labelEnd + 2, ")");
+					const targetEnd = findCloser(labelEnd + 2, ")");
 					if (targetEnd !== -1) {
 						const label = text.slice(index + 1, labelEnd);
 						const rawTarget = text.slice(labelEnd + 2, targetEnd);

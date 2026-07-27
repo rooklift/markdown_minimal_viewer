@@ -50,6 +50,35 @@ test("caps nesting depth instead of exhausting the stack", () => {
 	assert.equal(nested, "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>");
 });
 
+test("backslash escapes suppress emphasis and link delimiters", () => {
+	assert.equal(renderMarkdown("\\_not em\\_"), "<p>_not em_</p>");
+	assert.equal(renderMarkdown("*a\\*b*"), "<p><em>a*b</em></p>");
+	assert.equal(renderMarkdown("\\[not](a-link)"), "<p>[not](a-link)</p>");
+
+	// An escaped closer is passed over in favour of the real one.
+	assert.equal(
+		renderMarkdown("[x\\](y)](https://example.com)"),
+		'<p><a href="https://example.com" data-href="https://example.com" rel="noreferrer">x](y)</a></p>',
+	);
+});
+
+test("pathological delimiter runs render in linear time", () => {
+	// Each of these previously re-scanned the rest of the text once per delimiter,
+	// taking tens of seconds at this size and hours at the 10 MB file limit.
+	const cases = [
+		" _a\\_".repeat(32000),
+		"[a".repeat(80000),
+		"[a](b".repeat(32000),
+	];
+
+	for (const text of cases) {
+		const started = process.hrtime.bigint();
+		renderMarkdown(text);
+		const seconds = Number(process.hrtime.bigint() - started) / 1e9;
+		assert.ok(seconds < 5, `took ${seconds.toFixed(1)}s for input of length ${text.length}`);
+	}
+});
+
 test("renders blockquotes, rules, and hard breaks", () => {
 	const html = renderMarkdown("> quoted\n\n---\n\nfirst  \nsecond");
 	assert.match(html, /<blockquote><p>quoted<\/p><\/blockquote>/);

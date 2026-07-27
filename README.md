@@ -1,6 +1,6 @@
 # Minimal Markdown Viewer
 
-A small desktop Markdown viewer built by Sol 5.6 and Opus 5 for Electron with no other dependencies.
+A small desktop Markdown viewer built by Sol 5.6, Opus 5 and Fable 5 for Electron with no other dependencies.
 
 It supports:
 
