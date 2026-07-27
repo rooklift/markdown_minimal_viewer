@@ -72,6 +72,22 @@
 		return end;
 	}
 
+	// Backtick runs, measured once. A code span closes at the next run at least as
+	// long as its opener, so a search can hop run to run instead of rescanning text —
+	// and, knowing the longest length that remains, a doomed search can give up at
+	// once. The failed-scan memo cannot do this job: each backtick of an unclosed
+	// run is a fresh opener of a different length, so no two scans share a marker.
+	function backtickRuns(text) {
+		const runs = [];
+		let index = text.indexOf("`");
+		while (index !== -1) {
+			const end = runEnd(text, index, "`");
+			runs.push({ start: index, end });
+			index = text.indexOf("`", end);
+		}
+		return runs;
+	}
+
 	// One linear pass. A rejected `_` run is skipped whole rather than re-scanned from
 	// its second character, which keeps pathological delimiter runs from going quadratic.
 	function findClosingEmphasis(text, escaped, start, marker) {
@@ -107,6 +123,15 @@
 		// rather than counting backslashes from wherever a scan happens to start.
 		const escaped = escapedPositions(text);
 		const exhausted = { "](": Infinity, ")": Infinity, "*": Infinity, "**": Infinity, _: Infinity, __: Infinity };
+
+		// longestTickRun[r] is the longest backtick run length from run r onward, so
+		// an opener longer than everything after it fails without walking the runs.
+		const tickRuns = backtickRuns(text);
+		const longestTickRun = new Array(tickRuns.length + 1).fill(0);
+		for (let r = tickRuns.length - 1; r >= 0; r -= 1) {
+			longestTickRun[r] = Math.max(tickRuns[r].end - tickRuns[r].start, longestTickRun[r + 1]);
+		}
+		let tickRunIndex = 0;
 
 		// Every position in a run shares one run start, and the loop usually steps
 		// through a run one character at a time, so carry the last answer forward
@@ -162,12 +187,18 @@
 			}
 
 			if (text[index] === "`") {
-				const ticks = text.slice(index).match(/^`+/)[0];
-				const end = text.indexOf(ticks, index + ticks.length);
-				if (end !== -1) {
-					const code = text.slice(index + ticks.length, end).trim();
+				while (tickRuns[tickRunIndex].end <= index) {
+					tickRunIndex += 1;
+				}
+				const ticks = tickRuns[tickRunIndex].end - index;
+				if (longestTickRun[tickRunIndex + 1] >= ticks) {
+					let closer = tickRunIndex + 1;
+					while (tickRuns[closer].end - tickRuns[closer].start < ticks) {
+						closer += 1;
+					}
+					const code = text.slice(index + ticks, tickRuns[closer].start).trim();
 					html += `<code>${escapeHtml(code)}</code>`;
-					index = end + ticks.length;
+					index = tickRuns[closer].start + ticks;
 					continue;
 				}
 			}

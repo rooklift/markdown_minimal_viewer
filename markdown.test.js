@@ -48,6 +48,16 @@ test("escapes raw HTML in prose and code blocks", () => {
 	assert.match(html, /&lt;b&gt;code&lt;\/b&gt;/);
 });
 
+test("code spans pair backtick runs by length", () => {
+	// A closing run must be at least as long as the opener, so a shorter run
+	// inside the span stays part of the code.
+	assert.equal(renderMarkdown("``a`b``"), "<p><code>a`b</code></p>");
+
+	// An opener with no closer is literal text; its tail may still pair up.
+	assert.equal(renderMarkdown("a`b"), "<p>a`b</p>");
+	assert.equal(renderMarkdown("a``b`c"), "<p>a`<code>b</code>c</p>");
+});
+
 test("does not treat underscores inside a word as emphasis", () => {
 	assert.equal(renderMarkdown("snake_case_here"), "<p>snake_case_here</p>");
 	assert.equal(renderMarkdown("snake__case__here"), "<p>snake__case__here</p>");
@@ -126,7 +136,12 @@ test("pathological delimiter runs render in linear time", () => {
 		// These two scan successfully every time and still consume nothing, so the
 		// failed-scan memo never fires and they need one of their own.
 		"[a".repeat(80000) + "](javascript:x)",
-		"[a".repeat(80000) + "](http://x)",
+		"[a".repeat(80000) + "](http://x)",
+		// Each backtick of an unclosed run opens with a different length, so the
+		// failed-scan memo cannot cover backticks; each opener measured and rescanned
+		// the rest of the text. The leading letter keeps the line a paragraph rather
+		// than a cheap code fence.
+		"a" + "`".repeat(200000),
 	];
 
 	for (const text of cases) {
