@@ -365,13 +365,6 @@
 				continue;
 			}
 
-			if (index + 1 < lines.length && /^\s*(=+|-+)\s*$/.test(lines[index + 1]) && line.trim()) {
-				const level = lines[index + 1].trim()[0] === "=" ? 1 : 2;
-				output.push(`<h${level}>${renderInline(line.trim())}</h${level}>`);
-				index += 2;
-				continue;
-			}
-
 			if (/^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$/.test(line)) {
 				output.push("<hr>");
 				index += 1;
@@ -402,6 +395,18 @@
 				const list = renderList(lines, index, depth);
 				output.push(list.html);
 				index = list.nextIndex;
+				continue;
+			}
+
+			// Last, because a `---` underline only makes a heading of a line that would
+			// otherwise have been a paragraph. Tried any earlier it also swallows the
+			// line above a thematic break — a one-item list, a quote, another rule —
+			// since every one of those can be followed by `---`. This is the order
+			// `isBlockStart` already uses to decide where a paragraph stops.
+			if (index + 1 < lines.length && /^\s*(=+|-+)\s*$/.test(lines[index + 1]) && line.trim()) {
+				const level = lines[index + 1].trim()[0] === "=" ? 1 : 2;
+				output.push(`<h${level}>${renderInline(line.trim())}</h${level}>`);
+				index += 2;
 				continue;
 			}
 

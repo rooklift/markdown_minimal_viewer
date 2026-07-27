@@ -137,6 +137,22 @@ test("pathological delimiter runs render in linear time", () => {
 	}
 });
 
+test("an underline only makes a heading of what would have been a paragraph", () => {
+	assert.equal(renderMarkdown("Title\n---"), "<h2>Title</h2>");
+	assert.equal(renderMarkdown("Title\n==="), "<h1>Title</h1>");
+
+	// Every one of these can be followed by a thematic break, and each was swallowed
+	// into a heading while the underline was tested before the block it sits on.
+	assert.equal(renderMarkdown("- a\n---"), "<ul><li>a</li></ul>\n<hr>");
+	assert.equal(renderMarkdown("> q\n---"), "<blockquote><p>q</p></blockquote>\n<hr>");
+	assert.equal(renderMarkdown("---\n---"), "<hr>\n<hr>");
+	assert.equal(renderMarkdown("    code\n---"), "<pre><code>code</code></pre>\n<hr>");
+
+	// A list of more than one item never regressed: the underline is not the line
+	// directly below the first item, so the list branch got its turn regardless.
+	assert.equal(renderMarkdown("- a\n- b\n---"), "<ul><li>a</li><li>b</li></ul>\n<hr>");
+});
+
 test("renders blockquotes, rules, and hard breaks", () => {
 	const html = renderMarkdown("> quoted\n\n---\n\nfirst  \nsecond");
 	assert.match(html, /<blockquote><p>quoted<\/p><\/blockquote>/);
