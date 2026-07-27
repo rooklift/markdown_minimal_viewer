@@ -561,8 +561,25 @@
 			}
 
 			index += 1;
-			const contentLines = [item.content];
-			let nestedHtml = "";
+			// An item is a sequence of segments — runs of text lines interleaved
+			// with nested lists — so content that follows a nested list renders
+			// after it, in source order.
+			const segments = [{ lines: [item.content] }];
+
+			// Continuation lines are measured against the deepest construct they
+			// can hang from: the item's own content column until a nested list
+			// intervenes, then that list's marker column — so text aligned with
+			// a nested marker reads as a hanging indent, not indented code.
+			let continuationIndent = item.contentIndent;
+
+			const pushLine = (line) => {
+				const last = segments[segments.length - 1];
+				if (last.lines) {
+					last.lines.push(line);
+				} else {
+					segments.push({ lines: [line] });
+				}
+			};
 
 			while (index < lines.length) {
 				const nestedItem = listMatch(lines[index]);
@@ -571,12 +588,13 @@
 						if (depth >= MAX_NESTING_DEPTH) {
 							// Too deep to open another list; fold the line into this item
 							// instead, which also guarantees index still advances.
-							contentLines.push(dedent(lines[index], item.contentIndent));
+							pushLine(dedent(lines[index], continuationIndent));
 							index += 1;
 							continue;
 						}
 						const nested = renderList(lines, index, depth + 1);
-						nestedHtml += nested.html;
+						segments.push({ html: nested.html });
+						continuationIndent = Math.max(continuationIndent, nestedItem.indent);
 						index = nested.nextIndex;
 						continue;
 					}
@@ -593,28 +611,36 @@
 						break;
 					}
 					loose = true;
-					contentLines.push("");
+					pushLine("");
 					index = next;
 					continue;
 				}
 
 				if (indentWidth(lines[index]) > baseIndent) {
-					contentLines.push(dedent(lines[index], item.contentIndent));
+					pushLine(dedent(lines[index], continuationIndent));
 					index += 1;
 					continue;
 				}
 				break;
 			}
 
-			items.push({ contentLines, nestedHtml });
+			items.push(segments);
 		}
 
 		// Rendered only now because looseness belongs to the whole list: a gap
 		// before its last item still wraps its first in <p>.
 		let html = `<${tag}${startAttribute}>`;
-		for (const { contentLines, nestedHtml } of items) {
-			const rendered = renderBlocks(contentLines, 0, depth + 1).html;
-			html += `<li>${loose ? rendered : unwrapSingleParagraph(rendered)}${nestedHtml}</li>`;
+		for (const segments of items) {
+			let itemHtml = "";
+			for (const segment of segments) {
+				if (segment.lines) {
+					const rendered = renderBlocks(segment.lines, 0, depth + 1).html;
+					itemHtml += loose ? rendered : unwrapSingleParagraph(rendered);
+				} else {
+					itemHtml += segment.html;
+				}
+			}
+			html += `<li>${itemHtml}</li>`;
 		}
 		html += `</${tag}>`;
 		return { html, nextIndex: index };

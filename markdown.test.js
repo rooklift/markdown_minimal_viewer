@@ -14,6 +14,16 @@ test("renders ordered, unordered, and nested lists", () => {
 	assert.equal(html, "<ul><li>one</li><li>two<ol><li>nested</li><li>again</li></ol></li></ul>");
 });
 
+test("item content after a nested list keeps its source order", () => {
+	const html = renderMarkdown("- one\n- two\n  1. nested\n  after");
+	assert.equal(html, "<ul><li>one</li><li>two<ol><li>nested</li></ol>after</li></ul>");
+});
+
+test("a paragraph aligned with a nested marker is text, not code", () => {
+	const html = renderMarkdown("- before\n       - child\n\n       after");
+	assert.equal(html, "<ul><li><p>before</p><ul><li>child</li></ul><p>after</p></li></ul>");
+});
+
 test("only http, https, and mailto targets become links", () => {
 	const html = renderMarkdown("[a](https://example.com) [b](http://example.com) [c](mailto:x@example.com)");
 	assert.equal(html.match(/<a /g).length, 3);
