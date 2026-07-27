@@ -156,14 +156,19 @@ test("escapes raw HTML in prose and code blocks", () => {
 	assert.match(html, /&lt;b&gt;code&lt;\/b&gt;/);
 });
 
-test("code spans pair backtick runs by length", () => {
-	// A closing run must be at least as long as the opener, so a shorter run
-	// inside the span stays part of the code.
+test("code spans pair backtick runs of exactly equal length", () => {
+	// A span closes at the next run of exactly the opener's length, so a
+	// shorter run inside the span stays part of the code.
 	assert.equal(renderMarkdown("``a`b``"), "<p><code>a`b</code></p>");
 
-	// An opener with no closer is literal text; its tail may still pair up.
+	// A run with no equal-length partner is literal text — whole, not shed
+	// tick by tick until something shorter matches.
 	assert.equal(renderMarkdown("a`b"), "<p>a`b</p>");
-	assert.equal(renderMarkdown("a``b`c"), "<p>a`<code>b</code>c</p>");
+	assert.equal(renderMarkdown("a``b`c"), "<p>a``b`c</p>");
+
+	// CommonMark's own illustration of the equal-length rule: the lone opener
+	// stays literal while the double runs behind it still pair.
+	assert.equal(renderMarkdown("`foo``bar``"), "<p>`foo<code>bar</code></p>");
 });
 
 test("does not treat underscores inside a word as emphasis", () => {

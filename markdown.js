@@ -1,9 +1,11 @@
 (function exposeMarkdownRenderer(globalObject) {
 	"use strict";
 
-	// Blocks, lists, and inline spans all recurse. Real documents nest a handful of
-	// levels deep; a hostile one nests thousands and exhausts the stack, so past this
-	// limit the remaining content is rendered as plain text instead of recursing.
+	// Blocks and lists recurse. Real documents nest a handful of levels deep; a
+	// hostile one nests thousands and exhausts the stack, so past this limit the
+	// remaining content is rendered as plain text instead of recursing. Inline
+	// rendering is iterative and borrows the limit only to bound how deeply the
+	// tags it emits can nest.
 	const MAX_NESTING_DEPTH = 64;
 
 	function escapeHtml(value) {
@@ -55,15 +57,6 @@
 		return escaped;
 	}
 
-	function findClosingBracket(text, escaped, start, marker) {
-		for (let index = start; index <= text.length - marker.length; index += 1) {
-			if (!escaped[index] && text.startsWith(marker, index)) {
-				return index;
-			}
-		}
-		return -1;
-	}
-
 	function runEnd(text, index, marker) {
 		let end = index;
 		while (end < text.length && text[end] === marker) {
@@ -86,53 +79,64 @@
 	}
 
 	// Code spans, resolved left to right before anything else looks at the text.
-	// An opener takes the first later run long enough to close it; opening ticks
-	// that no later run can match stay literal, and a closing run longer than
-	// needed leaves its tail as the next opener. Settling spans first is what
-	// lets the emphasis pass refuse delimiters inside them: CommonMark binds
-	// code tighter than emphasis, so the * inside `a*b` may close nothing.
+	// A span opens at a backtick run and closes at the next run of exactly the
+	// same length, as CommonMark demands; a run with no equal-length partner
+	// after it stays literal whole, and scanning resumes at the very next run.
+	// Settling spans first is what lets the emphasis pass refuse delimiters
+	// inside them: CommonMark binds code tighter than emphasis, so the * inside
+	// `a*b` may close nothing.
 	function computeCodeSpans(text, escaped) {
-		const runs = backtickRuns(text);
+		const runs = [];
+		for (const run of backtickRuns(text)) {
+			// Only a run's first tick can be escaped, and an escaped tick is
+			// literal text, not part of a delimiter.
+			const start = escaped[run.start] ? run.start + 1 : run.start;
+			if (start < run.end) {
+				runs.push({ start, end: run.end });
+			}
+		}
 
-		// longestFrom[r] is the longest run length from run r onward, so an opener
-		// longer than everything after it sheds its hopeless leading ticks at once.
-		const longestFrom = new Array(runs.length + 1).fill(0);
-		for (let r = runs.length - 1; r >= 0; r -= 1) {
-			longestFrom[r] = Math.max(runs[r].end - runs[r].start, longestFrom[r + 1]);
+		// Run indices grouped by length, in text order, so an opener finds its
+		// first equal-length partner in one binary search — a pile of unequal
+		// runs would otherwise be rescanned once per opener.
+		const runsOfLength = new Map();
+		for (let index = 0; index < runs.length; index += 1) {
+			const length = runs[index].end - runs[index].start;
+			let indices = runsOfLength.get(length);
+			if (!indices) {
+				runsOfLength.set(length, indices = []);
+			}
+			indices.push(index);
 		}
 
 		const spans = [];
 		let runIndex = 0;
-		let position = 0;
 		while (runIndex < runs.length) {
 			const run = runs[runIndex];
-			let start = Math.max(run.start, position);
-			if (escaped[start]) {
-				// Only a run's first tick can be escaped, and an escaped tick is
-				// literal text, not an opener.
-				start += 1;
+			const indices = runsOfLength.get(run.end - run.start);
+			// First equal-length run after this one.
+			let low = 0;
+			let high = indices.length;
+			while (low < high) {
+				const middle = (low + high) >> 1;
+				if (indices[middle] <= runIndex) {
+					low = middle + 1;
+				} else {
+					high = middle;
+				}
 			}
-			if (start >= run.end || longestFrom[runIndex + 1] === 0) {
+			if (low === indices.length) {
 				runIndex += 1;
 				continue;
 			}
-			let ticks = run.end - start;
-			if (ticks > longestFrom[runIndex + 1]) {
-				start = run.end - longestFrom[runIndex + 1];
-				ticks = longestFrom[runIndex + 1];
-			}
-			let closer = runIndex + 1;
-			while (runs[closer].end - runs[closer].start < ticks) {
-				closer += 1;
-			}
+			const closer = runs[indices[low]];
 			spans.push({
-				start,
-				contentStart: start + ticks,
-				contentEnd: runs[closer].start,
-				end: runs[closer].start + ticks,
+				start: run.start,
+				contentStart: run.end,
+				contentEnd: closer.start,
+				end: closer.end,
 			});
-			position = runs[closer].start + ticks;
-			runIndex = closer;
+			runIndex = indices[low] + 1;
 		}
 		return spans;
 	}
@@ -262,48 +266,25 @@
 		return pairs;
 	}
 
-	function renderInline(text, depth = 0) {
-		if (depth > MAX_NESTING_DEPTH) {
-			return escapeHtml(text);
-		}
-
-		const escaped = escapedPositions(text);
-
-		// Code spans and emphasis are settled before rendering starts: spans
-		// first, then delimiter pairing over everything outside them. The loop
-		// below just plays the decisions back — a delimiter it meets either
-		// begins a recorded pair or is literal text.
-		const codeSpans = computeCodeSpans(text, escaped);
-		const codeSpanAt = new Map();
-		for (const span of codeSpans) {
-			codeSpanAt.set(span.start, span);
-		}
-		const emphasisPairs = matchEmphasisPairs(emphasisDelimiters(text, escaped, codeSpans));
-
-		// If no "](" exists from one point, none exists from any later point, so a
-		// failed label scan is worth remembering: without this a long run of "["
-		// rescans the rest of the text once per bracket. That guarantee needs every
-		// scan to agree on which characters are escaped, hence the precomputed map
-		// rather than counting backslashes from wherever a scan happens to start.
-		let labelScanFailedFrom = Infinity;
-
-		function findLabelEnd(start) {
-			if (start >= labelScanFailedFrom) {
-				return -1;
-			}
-			const end = findClosingBracket(text, escaped, start, "](");
-			if (end === -1) {
-				labelScanFailedFrom = start;
-			}
-			return end;
+	// Links are settled in one pass over the whole text, after code spans and
+	// before emphasis. A label ends at the first unescaped "](" outside every
+	// code span — code binds tighter, so a span may swallow a would-be closer —
+	// and the target at the balanced ")" that safeLinkTarget then judges. That
+	// first "](" serves every earlier bracket too, so a label can never hold a
+	// complete link of its own and the links come out disjoint, in text order.
+	function computeLinks(text, escaped, codeSpans) {
+		const links = [];
+		let bracket = text.indexOf("[");
+		if (bracket === -1) {
+			return links;
 		}
 
 		// A link target ends at the first unescaped ")" that is not matching a "("
 		// opened inside it, so a parenthesised URL survives whole. That closer is
 		// the first ")" whose running paren balance equals the scan start's, so
 		// indexing the ")"s by balance turns each search into one binary lookup.
-		// The failed-scan memo cannot cover this marker any more: a failed balance
-		// scan says nothing about later scans, which start at depth zero afresh.
+		// The failed-scan memo cannot cover this marker: a failed balance scan
+		// says nothing about later scans, which start at depth zero afresh.
 		const parenBalance = new Int32Array(text.length + 1);
 		const parenClosers = new Map();
 		for (let index = 0; index < text.length; index += 1) {
@@ -339,16 +320,55 @@
 			return low < closers.length ? closers[low] : -1;
 		}
 
-		// A `[` whose target turns out to be unsafe consumes nothing, and the scan that
-		// found that target succeeded, so the failed-scan memo has nothing to say about
-		// it. Every earlier `[` reaches this same `](` — there is no closer one, or the
-		// scan would have stopped there — and so is rejected over the same target.
-		// Without this a run of `[` before one bad link rescans the rest of the text
-		// once per bracket.
+		// If no "](" exists from one point, none exists from any later point, so
+		// a failed label scan is worth remembering: without this a long run of
+		// "[" rescans the rest of the text once per bracket. The guarantee needs
+		// every scan to agree on what is escaped and what sits inside a code
+		// span, hence the precomputed maps rather than judging from wherever a
+		// scan happens to start — a later scan only ever examines a subset of
+		// the positions an earlier one did.
+		let labelScanFailedFrom = Infinity;
+
+		function findLabelEnd(start) {
+			if (start >= labelScanFailedFrom) {
+				return -1;
+			}
+			// First code span that could still cover positions at or after start.
+			let low = 0;
+			let high = codeSpans.length;
+			while (low < high) {
+				const middle = (low + high) >> 1;
+				if (codeSpans[middle].end <= start) {
+					low = middle + 1;
+				} else {
+					high = middle;
+				}
+			}
+			let spanIndex = low;
+			let index = start;
+			while (index + 1 < text.length) {
+				if (spanIndex < codeSpans.length && index >= codeSpans[spanIndex].start) {
+					index = codeSpans[spanIndex].end;
+					spanIndex += 1;
+					continue;
+				}
+				if (!escaped[index] && text[index] === "]" && text[index + 1] === "(") {
+					return index;
+				}
+				index += 1;
+			}
+			labelScanFailedFrom = start;
+			return -1;
+		}
+
+		// A "[" whose target turns out to be unsafe consumes nothing, and the scan
+		// that found that target succeeded, so the failed-scan memo has nothing to
+		// say about it. Every earlier "[" reaches this same "](" — there is no
+		// closer one, or the scan would have stopped there — and so is rejected
+		// over the same target. Without this a run of "[" before one bad link
+		// rescans the rest of the text once per bracket.
 		let rejectedLabelEnd = -1;
 
-		// A link parsed from its opening bracket, or null when no safe link
-		// starts there. Shared by plain links and image syntax.
 		function tryLink(start) {
 			if (start + 1 <= rejectedLabelEnd) {
 				return null;
@@ -366,92 +386,207 @@
 				rejectedLabelEnd = labelEnd;
 				return null;
 			}
-			const attribute = escapeHtml(target);
-			const label = renderInline(text.slice(start + 1, labelEnd), depth + 1);
-			return {
-				html: `<a href="${attribute}" data-href="${attribute}" rel="noreferrer">${label}</a>`,
-				nextIndex: targetEnd + 1,
-			};
+			return { labelEnd, targetEnd, target };
 		}
 
-		let html = "";
-		let index = 0;
-
-		while (index < text.length) {
-			if (text[index] === "\\" && escaped[index + 1]) {
-				html += escapeHtml(text[index + 1]);
-				index += 2;
+		let spanIndex = 0;
+		while (bracket !== -1) {
+			while (spanIndex < codeSpans.length && codeSpans[spanIndex].end <= bracket) {
+				spanIndex += 1;
+			}
+			if (spanIndex < codeSpans.length && bracket >= codeSpans[spanIndex].start) {
+				bracket = text.indexOf("[", codeSpans[spanIndex].end);
 				continue;
 			}
-
-			if (text[index] === "`") {
-				const span = codeSpanAt.get(index);
-				if (span) {
-					html += `<code>${escapeHtml(text.slice(span.contentStart, span.contentEnd).trim())}</code>`;
-					index = span.end;
-					continue;
-				}
+			if (escaped[bracket]) {
+				bracket = text.indexOf("[", bracket + 1);
+				continue;
 			}
-
+			const link = tryLink(bracket);
+			if (!link) {
+				bracket = text.indexOf("[", bracket + 1);
+				continue;
+			}
 			// The viewer loads no remote content, so an image is shown as the one
 			// thing it can honour: a link to the source, labelled by the alt text.
-			// A bang followed by no safe link is literal like any other character.
-			if (text[index] === "!" && text[index + 1] === "[") {
-				const link = tryLink(index + 1);
-				if (link) {
-					html += link.html;
-					index = link.nextIndex;
-					continue;
-				}
-			}
+			// A bang ahead of no safe link is literal like any other character.
+			const image = bracket > 0 && text[bracket - 1] === "!" && !escaped[bracket - 1];
+			links.push({
+				start: image ? bracket - 1 : bracket,
+				labelStart: bracket + 1,
+				labelEnd: link.labelEnd,
+				targetEnd: link.targetEnd,
+				target: link.target,
+			});
+			bracket = text.indexOf("[", link.targetEnd + 1);
+		}
+		return links;
+	}
 
-			if (text[index] === "[") {
-				const link = tryLink(index);
-				if (link) {
-					html += link.html;
-					index = link.nextIndex;
-					continue;
-				}
-			}
-
-			if (text[index] === "*" || text[index] === "_") {
-				const pair = emphasisPairs.get(index);
-				if (pair) {
-					const tag = pair.spend === 2 ? "strong" : "em";
-					html += `<${tag}>${renderInline(text.slice(index + pair.spend, pair.closerStart), depth + 1)}</${tag}>`;
-					index = pair.closerStart + pair.spend;
-					continue;
-				}
-			}
-
-			// Spaces are taken as a whole run so a hard break replaces its trailing
-			// spaces as they are met, never after the fact: splicing them back out of
-			// the rendered string re-flattened it each time, which made a paragraph
-			// of hard breaks quadratic. Every other construct ends at a delimiter,
-			// so a run before a newline can never have been partly consumed.
-			if (text[index] === " ") {
-				const end = runEnd(text, index, " ");
-				if (text[end] === "\n" && end - index >= 2) {
-					html += "<br>";
-					index = end + 1;
-				} else {
-					html += text.slice(index, end);
-					index = end;
-				}
-				continue;
-			}
-
-			if (text[index] === "\n") {
-				html += " ";
-				index += 1;
-				continue;
-			}
-
-			html += escapeHtml(text[index]);
-			index += 1;
+	// Emphasis is paired within each link label apart from the text outside: a
+	// link, once formed, is a boundary emphasis cannot cross, which is why the
+	// links are settled first. Delimiters between a label's end and its
+	// target's ")" sit inside consumed link syntax and can pair with nothing.
+	// The scopes are disjoint and pairs are keyed by text position, so one map
+	// holds every scope's verdicts for the render walk to meet.
+	function computeEmphasisPairs(text, escaped, codeSpans, links) {
+		const delimiters = emphasisDelimiters(text, escaped, codeSpans);
+		if (delimiters.length === 0) {
+			return new Map();
+		}
+		if (links.length === 0) {
+			return matchEmphasisPairs(delimiters);
 		}
 
-		return html;
+		const pairs = new Map();
+		const mergePairs = (scope) => {
+			if (scope.length > 0) {
+				for (const [key, pair] of matchEmphasisPairs(scope)) {
+					pairs.set(key, pair);
+				}
+			}
+		};
+
+		const outside = [];
+		let label = [];
+		let labelOf = -1;
+		let linkIndex = 0;
+		for (const delimiter of delimiters) {
+			while (linkIndex < links.length && links[linkIndex].targetEnd < delimiter.start) {
+				linkIndex += 1;
+			}
+			const link = linkIndex < links.length ? links[linkIndex] : null;
+			if (!link || delimiter.start < link.start) {
+				outside.push(delimiter);
+			} else if (delimiter.start >= link.labelStart && delimiter.end <= link.labelEnd) {
+				// A run never straddles a label boundary — "[" and "]" break it —
+				// so containment needs no splitting.
+				if (labelOf !== linkIndex) {
+					mergePairs(label);
+					label = [];
+					labelOf = linkIndex;
+				}
+				label.push(delimiter);
+			}
+		}
+		mergePairs(label);
+		mergePairs(outside);
+		return pairs;
+	}
+
+	// Text between constructs, rendered in one regex pass: an escape pair
+	// collapses to its character, a run of two or more spaces before a newline
+	// is the hard break it means, a lone newline is a space, and what remains
+	// is escaped in slices rather than character by character. The escape
+	// alternative consumes pairs left to right exactly as escapedPositions
+	// judges them, so the two cannot disagree.
+	const TEXT_TOKEN = new RegExp(`\\\\(${ESCAPABLE_CHARACTER.source})|( +)\\n|\\n`, "g");
+
+	function renderTextRun(raw) {
+		let html = "";
+		let last = 0;
+		TEXT_TOKEN.lastIndex = 0;
+		let match;
+		while ((match = TEXT_TOKEN.exec(raw)) !== null) {
+			html += escapeHtml(raw.slice(last, match.index));
+			if (match[1] !== undefined) {
+				html += escapeHtml(match[1]);
+			} else if (match[2] !== undefined) {
+				html += match[2].length >= 2 ? "<br>" : `${match[2]} `;
+			} else {
+				html += " ";
+			}
+			last = match.index + match[0].length;
+		}
+		return html + escapeHtml(raw.slice(last));
+	}
+
+	// Inline rendering in one pass over the whole text: code spans, links, and
+	// emphasis scoped by the links are all settled up front, and a single walk
+	// plays the decisions back with an explicit stack of open tags. Nothing
+	// recurses and nothing is re-derived on inner slices — nesting once cost a
+	// fresh set of maps over nearly the whole remaining text per level, which a
+	// document at the size limit turned into gigabytes — so a paragraph costs
+	// one set of maps however deeply it nests. The depth cap only bounds the
+	// emitted tree: a construct past it is skipped and its markers stay text.
+	function renderInline(text) {
+		const escaped = escapedPositions(text);
+		const codeSpans = computeCodeSpans(text, escaped);
+		const links = computeLinks(text, escaped, codeSpans);
+		const pairs = computeEmphasisPairs(text, escaped, codeSpans, links);
+
+		const events = [];
+		for (const span of codeSpans) {
+			events.push({ position: span.start, span });
+		}
+		for (const link of links) {
+			events.push({ position: link.start, link });
+		}
+		for (const [position, pair] of pairs) {
+			events.push({ position, pair });
+		}
+		events.sort((left, right) => left.position - right.position);
+
+		let html = "";
+		const stack = [];
+		let eventIndex = 0;
+		let index = 0;
+
+		while (true) {
+			// Events the walk jumped over — inside a consumed link target, or a
+			// span straddling out of one — are spent, not replayed.
+			while (eventIndex < events.length && events[eventIndex].position < index) {
+				eventIndex += 1;
+			}
+			const closeAt = stack.length > 0 ? stack[stack.length - 1].at : Infinity;
+			const eventAt = eventIndex < events.length ? events[eventIndex].position : Infinity;
+			const boundary = Math.min(closeAt, eventAt, text.length);
+
+			if (index < boundary) {
+				html += renderTextRun(text.slice(index, boundary));
+				index = boundary;
+				continue;
+			}
+
+			if (stack.length > 0 && closeAt <= eventAt) {
+				const top = stack.pop();
+				html += top.closing;
+				index = top.jumpTo;
+				continue;
+			}
+
+			if (eventIndex >= events.length) {
+				return html;
+			}
+
+			const event = events[eventIndex];
+			eventIndex += 1;
+
+			if (event.span) {
+				html += `<code>${escapeHtml(text.slice(event.span.contentStart, event.span.contentEnd).trim())}</code>`;
+				index = event.span.end;
+				continue;
+			}
+
+			// Past the depth cap no more structure opens: the construct is
+			// skipped whole and its markers render as the text they are.
+			if (stack.length >= MAX_NESTING_DEPTH) {
+				continue;
+			}
+
+			if (event.link) {
+				const attribute = escapeHtml(event.link.target);
+				html += `<a href="${attribute}" data-href="${attribute}" rel="noreferrer">`;
+				stack.push({ at: event.link.labelEnd, closing: "</a>", jumpTo: event.link.targetEnd + 1 });
+				index = event.link.labelStart;
+				continue;
+			}
+
+			const tag = event.pair.spend === 2 ? "strong" : "em";
+			html += `<${tag}>`;
+			stack.push({ at: event.pair.closerStart, closing: `</${tag}>`, jumpTo: event.pair.closerStart + event.pair.spend });
+			index = event.position + event.pair.spend;
+		}
 	}
 
 	function listMatch(line) {
