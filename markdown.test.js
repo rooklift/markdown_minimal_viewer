@@ -122,6 +122,23 @@ test("blank lines between items make one loose list, not two lists", () => {
 	assert.equal(renderMarkdown("- a\n\ntext"), "<ul><li>a</li></ul>\n<p>text</p>");
 });
 
+test("an empty item stays in its list instead of splitting it", () => {
+	assert.equal(renderMarkdown("- first\n-\n- third"), "<ul><li>first</li><li></li><li>third</li></ul>");
+
+	// Trailing spaces after the marker are still an empty item, never an item
+	// whose content is whitespace.
+	assert.equal(renderMarkdown("- a\n-  \n- b"), "<ul><li>a</li><li></li><li>b</li></ul>");
+
+	// An item that starts blank reads its content column as one past the
+	// marker, so an indented line below still belongs to it.
+	assert.equal(renderMarkdown("-\n  foo"), "<ul><li>foo</li></ul>");
+
+	// An empty item cannot interrupt a paragraph: a lone marker mid-paragraph
+	// is prose. (A lone "-" is a setext underline before it is a list item.)
+	assert.equal(renderMarkdown("foo\n*\nbar"), "<p>foo * bar</p>");
+	assert.equal(renderMarkdown("foo\n-\nbar"), "<h2>foo</h2>\n<p>bar</p>");
+});
+
 test("escapes raw HTML in prose and code blocks", () => {
 	const html = renderMarkdown("<script>alert('no')</script>\n\n```\n<b>code</b>\n```");
 	assert.doesNotMatch(html, /<script>/);

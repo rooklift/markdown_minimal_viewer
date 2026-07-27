@@ -455,18 +455,23 @@
 	}
 
 	function listMatch(line) {
-		const match = line.match(/^(\s*)([-+*]|\d+[.)])(\s+)(.+)$/);
+		// A marker with nothing after it is an empty item, trailing spaces or
+		// not; content proper starts at its first non-space character so those
+		// two cases cannot blur into an item whose content is whitespace.
+		const match = line.match(/^(\s*)([-+*]|\d+[.)])(?:(\s+)(\S.*)|\s*)$/);
 		if (!match) {
 			return null;
 		}
 
 		return {
-			content: match[4],
+			content: match[4] ?? "",
 			indent: match[1].replaceAll("\t", "    ").length,
 			// The column where the item's content begins, which is what a
 			// continuation line must be dedented by to mean what it would at
 			// top level — no more, or a code block inside the item flattens.
-			contentIndent: (match[1] + match[2] + match[3]).replaceAll("\t", "    ").length,
+			// An empty item offers no content to measure from; its column is
+			// one past the marker, as CommonMark reads items that start blank.
+			contentIndent: (match[1] + match[2] + (match[3] ?? " ")).replaceAll("\t", "    ").length,
 			ordered: /^\d/.test(match[2]),
 			start: /^\d/.test(match[2]) ? Number.parseInt(match[2], 10) : null,
 		};
@@ -505,13 +510,17 @@
 	function isBlockStart(lines, index) {
 		const line = lines[index] || "";
 		const next = lines[index + 1] || "";
+		// Only an item with content can interrupt a paragraph — CommonMark keeps
+		// a lone marker mid-paragraph as prose, so a line of "foo\n*\nbar" stays
+		// one paragraph rather than splitting around an empty list.
+		const item = listMatch(line);
 		// Indented code is deliberately absent: an indented line after text is a
 		// hanging indent continuing the paragraph, not the start of a code block.
 		return /^ {0,3}(#{1,6})\s+/.test(line)
 			|| /^ {0,3}(```+|~~~+)/.test(line)
 			|| /^ {0,3}>\s?/.test(line)
 			|| /^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$/.test(line)
-			|| listMatch(line) !== null
+			|| (item !== null && item.content !== "")
 			|| (/^\s*(=+|-+)\s*$/.test(next) && line.trim() !== "");
 	}
 
