@@ -6,10 +6,5 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test --test-isolation=none"
-  },
-  "devDependencies": {
-    "electron": "latest"
-  },
-  "license": "MIT",
-  "private": true
+  }
 }
