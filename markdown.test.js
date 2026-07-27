@@ -14,10 +14,31 @@ test("renders ordered, unordered, and nested lists", () => {
 	assert.equal(html, "<ul><li>one</li><li>two<ol><li>nested</li><li>again</li></ol></li></ul>");
 });
 
-test("renders safe links and rejects executable protocols", () => {
-	const html = renderMarkdown("[site](https://example.com) [bad](javascript:alert(1))");
+test("only http, https, and mailto targets become links", () => {
+	const html = renderMarkdown("[a](https://example.com) [b](http://example.com) [c](mailto:x@example.com)");
+	assert.equal(html.match(/<a /g).length, 3);
 	assert.match(html, /data-href="https:\/\/example\.com"/);
-	assert.doesNotMatch(html, /href="javascript:/);
+
+	// Everything else stays plain text. Local paths in particular never reach the
+	// main process, which is what stops a document naming a file for the viewer to
+	// read — a UNC path especially, which would open a connection to its host.
+	const inert = [
+		"./notes.md",
+		"/etc/passwd.md",
+		"../../../secret.md",
+		"//attacker.example/share/doc.md",
+		"C:/Windows/notes.md",
+		"file:///etc/passwd",
+		"#section",
+		"javascript:alert(1)",
+		"vbscript:msgbox",
+		"data:text/html,<script>alert(1)</script>",
+	];
+
+	for (const target of inert) {
+		const rendered = renderMarkdown(`[x](${target})`);
+		assert.doesNotMatch(rendered, /<a /, `${target} should not become a link`);
+	}
 });
 
 test("escapes raw HTML in prose and code blocks", () => {
@@ -83,6 +104,18 @@ test("backslash escapes suppress emphasis and link delimiters", () => {
 	);
 });
 
+test("a rejected link target does not suppress later links", () => {
+	// The bracket that owns the unsafe target renders as literal text, and so do the
+	// ones before it, but a genuine link further on still has to be found.
+	assert.equal(
+		renderMarkdown("[x](javascript:a) [y](https://example.com)"),
+		'<p>[x](javascript:a) <a href="https://example.com" data-href="https://example.com" rel="noreferrer">y</a></p>',
+	);
+
+	// Brackets ahead of a rejected target share its verdict, not its consumption.
+	assert.equal(renderMarkdown("[a[b](javascript:a)"), "<p>[a[b](javascript:a)</p>");
+});
+
 test("pathological delimiter runs render in linear time", () => {
 	// Each of these previously re-scanned the rest of the text once per delimiter,
 	// taking tens of seconds at this size and hours at the 10 MB file limit.
@@ -90,6 +123,10 @@ test("pathological delimiter runs render in linear time", () => {
 		" _a\\_".repeat(32000),
 		"[a".repeat(80000),
 		"[a](b".repeat(32000),
+		// These two scan successfully every time and still consume nothing, so the
+		// failed-scan memo never fires and they need one of their own.
+		"[a".repeat(80000) + "](javascript:x)",
+		"[a".repeat(80000) + "](http://x)",
 	];
 
 	for (const text of cases) {

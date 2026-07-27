@@ -15,18 +15,17 @@
 			.replaceAll("'", "&#39;");
 	}
 
+	// Only targets the viewer can actually act on are marked up as links: http(s) and
+	// mailto, which it hands to the browser or mail client. Anything else — a relative
+	// path, an absolute one, another scheme, a fragment — stays plain text, so a
+	// document has no way to name a local file at all, let alone ask for one to open.
 	function safeLinkTarget(value) {
 		const target = value.trim();
 		if (!target || /[\u0000-\u001f\u007f]/.test(target)) {
 			return null;
 		}
 
-		const scheme = target.match(/^([a-z][a-z\d+.-]*):/i);
-		if (scheme && !["http", "https", "mailto"].includes(scheme[1].toLowerCase())) {
-			return null;
-		}
-
-		return target;
+		return /^(?:https?|mailto):/i.test(target) ? target : null;
 	}
 
 	// escaped[i] is 1 when text[i] sits behind an odd run of backslashes. Judged once
@@ -115,6 +114,13 @@
 		let cachedRunIndex = -1;
 		let cachedRunStart = -1;
 
+		// A `[` whose target turns out to be unsafe consumes nothing, and the scan that
+		// found that target succeeded, so `exhausted` has nothing to say about it. Every
+		// earlier `[` reaches this same `](` — there is no closer one, or the scan would
+		// have stopped there — and so is rejected over the same target. Without this a
+		// run of `[` before one bad link rescans the rest of the text once per bracket.
+		let rejectedLabelEnd = -1;
+
 		// CommonMark allows `*` to emphasise inside a word but not `_`, so identifiers
 		// and file names such as snake_case_here survive intact.
 		function canOpen(index, marker) {
@@ -166,7 +172,7 @@
 				}
 			}
 
-			if (text[index] === "[") {
+			if (text[index] === "[" && index + 1 > rejectedLabelEnd) {
 				const labelEnd = findCloser(index + 1, "](");
 				if (labelEnd !== -1) {
 					const targetEnd = findCloser(labelEnd + 2, ")");
@@ -180,6 +186,7 @@
 							index = targetEnd + 1;
 							continue;
 						}
+						rejectedLabelEnd = labelEnd;
 					}
 				}
 			}

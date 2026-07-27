@@ -75,11 +75,7 @@ documentView.addEventListener("click", (event) => {
 	}
 
 	event.preventDefault();
-	const target = link.dataset.href;
-	if (target.startsWith("#")) {
-		return;
-	}
-	window.viewer.openLink(target);
+	window.viewer.openLink(link.dataset.href);
 });
 
 window.viewer.onDocumentOpened(displayDocument);

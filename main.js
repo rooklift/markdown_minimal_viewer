@@ -6,9 +6,10 @@ const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require("electron")
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MARKDOWN_EXTENSION = /\.(?:md|mdown|markdown)$/i;
+const LINK_SCHEME = /^(?:https?|mailto):/i;
+const CONTROL_CHARACTER = new RegExp("[\\u0000-\\u001f\\u007f]");
 
 let mainWindow;
-let currentFile = null;
 let queuedFile = null;
 
 function findCommandLineFile() {
@@ -29,7 +30,6 @@ async function readDocument(filePath) {
 	}
 
 	const content = await fs.readFile(absolutePath, "utf8");
-	currentFile = absolutePath;
 
 	if (mainWindow && !mainWindow.isDestroyed()) {
 		mainWindow.setTitle(`${path.basename(absolutePath)} — Minimal Markdown Viewer`);
@@ -215,35 +215,19 @@ ipcMain.handle("viewer:open-dropped-file", (_event, filePath) => {
 	return readDocument(filePath);
 });
 
+// The renderer only marks up http(s) and mailto targets, but it is the untrusted
+// side of this boundary, so the same rule decides again here. No link resolves to a
+// path any more: a document cannot name a local file, so it can neither make the
+// viewer read one nor hand one to the shell.
 ipcMain.handle("viewer:open-link", async (_event, target) => {
 	if (typeof target !== "string" || target.length > 2048) {
 		return;
 	}
 
 	const trimmed = target.trim();
-	if (/^(https?:|mailto:)/i.test(trimmed)) {
-		await shell.openExternal(trimmed);
+	if (CONTROL_CHARACTER.test(trimmed) || !LINK_SCHEME.test(trimmed)) {
 		return;
 	}
 
-	if (!trimmed || trimmed.startsWith("#") || /^[a-z][a-z\d+.-]*:/i.test(trimmed)) {
-		return;
-	}
-
-	const withoutFragment = trimmed.split("#", 1)[0];
-
-	let decodedPath;
-	try {
-		decodedPath = decodeURIComponent(withoutFragment);
-	} catch {
-		return;
-	}
-
-	const resolvedPath = path.resolve(currentFile ? path.dirname(currentFile) : process.cwd(), decodedPath);
-
-	// Relative links may only ever open Markdown, and only ever inside the viewer.
-	// Handing other paths to the shell would let a document execute local files.
-	if (MARKDOWN_EXTENSION.test(resolvedPath)) {
-		await openDocument(resolvedPath);
-	}
+	await shell.openExternal(trimmed);
 });

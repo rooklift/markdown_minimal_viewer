@@ -10,9 +10,9 @@ It supports:
 - inline and fenced code
 - blockquotes and horizontal rules
 - ordered, unordered, and nested lists
-- web, email, and relative-Markdown links
+- web and email links
 
-Raw HTML is displayed as text rather than executed. Links to relative Markdown files open in the viewer; links to other local files are ignored, so a document can never ask the system to open or run a file.
+Raw HTML is displayed as text rather than executed. Only `http`, `https`, and `mailto` links are live, and they open in your browser or mail client rather than in the viewer. Every other target — a relative path, an absolute one, another scheme, a `#fragment` — is shown as plain text, so a document has no way to name a local file, let alone make the viewer read one or the system open one. Files are opened only when you ask for one.
 
 ## Run it
 
