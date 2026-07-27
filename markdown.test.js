@@ -27,6 +27,16 @@ test("escapes raw HTML in prose and code blocks", () => {
 	assert.match(html, /&lt;b&gt;code&lt;\/b&gt;/);
 });
 
+test("caps nesting depth instead of exhausting the stack", () => {
+	const deepLists = Array.from({ length: 20000 }, (_, i) => " ".repeat(i * 2) + "- x").join("\n");
+	assert.doesNotThrow(() => renderMarkdown(deepLists));
+	assert.doesNotThrow(() => renderMarkdown(">".repeat(200000) + " x"));
+
+	// Nesting within the limit is still rendered as real structure.
+	const nested = renderMarkdown("- a\n  - b\n    - c");
+	assert.equal(nested, "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>");
+});
+
 test("renders blockquotes, rules, and hard breaks", () => {
 	const html = renderMarkdown("> quoted\n\n---\n\nfirst  \nsecond");
 	assert.match(html, /<blockquote><p>quoted<\/p><\/blockquote>/);
