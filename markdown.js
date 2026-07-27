@@ -20,7 +20,9 @@
 	// path, an absolute one, another scheme, a fragment — stays plain text, so a
 	// document has no way to name a local file at all, let alone ask for one to open.
 	function safeLinkTarget(value) {
-		const target = value.trim();
+		// The destination ends at the first whitespace; what follows is a
+		// CommonMark title, dropped rather than folded into the target.
+		const target = value.trim().match(/^\S*/)[0];
 		if (!target || /[\u0000-\u001f\u007f]/.test(target)) {
 			return null;
 		}
@@ -339,6 +341,33 @@
 		// once per bracket.
 		let rejectedLabelEnd = -1;
 
+		// A link parsed from its opening bracket, or null when no safe link
+		// starts there. Shared by plain links and image syntax.
+		function tryLink(start) {
+			if (start + 1 <= rejectedLabelEnd) {
+				return null;
+			}
+			const labelEnd = findLabelEnd(start + 1);
+			if (labelEnd === -1) {
+				return null;
+			}
+			const targetEnd = findClosingParen(labelEnd + 2);
+			if (targetEnd === -1) {
+				return null;
+			}
+			const target = safeLinkTarget(text.slice(labelEnd + 2, targetEnd));
+			if (!target) {
+				rejectedLabelEnd = labelEnd;
+				return null;
+			}
+			const attribute = escapeHtml(target);
+			const label = renderInline(text.slice(start + 1, labelEnd), depth + 1);
+			return {
+				html: `<a href="${attribute}" data-href="${attribute}" rel="noreferrer">${label}</a>`,
+				nextIndex: targetEnd + 1,
+			};
+		}
+
 		let html = "";
 		let index = 0;
 
@@ -358,22 +387,24 @@
 				}
 			}
 
-			if (text[index] === "[" && index + 1 > rejectedLabelEnd) {
-				const labelEnd = findLabelEnd(index + 1);
-				if (labelEnd !== -1) {
-					const targetEnd = findClosingParen(labelEnd + 2);
-					if (targetEnd !== -1) {
-						const label = text.slice(index + 1, labelEnd);
-						const rawTarget = text.slice(labelEnd + 2, targetEnd);
-						const target = safeLinkTarget(rawTarget);
-						if (target) {
-							const attribute = escapeHtml(target);
-							html += `<a href="${attribute}" data-href="${attribute}" rel="noreferrer">${renderInline(label, depth + 1)}</a>`;
-							index = targetEnd + 1;
-							continue;
-						}
-						rejectedLabelEnd = labelEnd;
-					}
+			// The viewer loads no remote content, so an image is shown as the one
+			// thing it can honour: a link to the source, labelled by the alt text.
+			// A bang followed by no safe link is literal like any other character.
+			if (text[index] === "!" && text[index + 1] === "[") {
+				const link = tryLink(index + 1);
+				if (link) {
+					html += link.html;
+					index = link.nextIndex;
+					continue;
+				}
+			}
+
+			if (text[index] === "[") {
+				const link = tryLink(index);
+				if (link) {
+					html += link.html;
+					index = link.nextIndex;
+					continue;
 				}
 			}
 
@@ -596,9 +627,10 @@
 			const fence = line.match(/^ {0,3}(```+|~~~+)(.*)$/);
 			if (fence) {
 				const marker = fence[1];
+				const closingFence = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}\\s*$`);
 				const codeLines = [];
 				index += 1;
-				while (index < lines.length && !new RegExp(`^ {0,3}${marker[0]}{${marker.length},}\\s*$`).test(lines[index])) {
+				while (index < lines.length && !closingFence.test(lines[index])) {
 					codeLines.push(lines[index]);
 					index += 1;
 				}

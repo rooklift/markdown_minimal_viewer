@@ -60,6 +60,35 @@ test("link targets may contain balanced parentheses", () => {
 	);
 });
 
+test("image syntax renders as a link to the image", () => {
+	// The viewer loads no remote content, so an image is shown as the one thing
+	// it can honour: a link to the source, labelled by the alt text.
+	assert.equal(
+		renderMarkdown("![alt text](https://example.com/a.png)"),
+		'<p><a href="https://example.com/a.png" data-href="https://example.com/a.png" rel="noreferrer">alt text</a></p>',
+	);
+
+	// An image whose target is unsafe stays literal, bang included.
+	assert.equal(renderMarkdown("![x](./a.png)"), "<p>![x](./a.png)</p>");
+
+	// An escaped bang is plain text ahead of an ordinary link.
+	assert.equal(
+		renderMarkdown("\\![x](https://a)"),
+		'<p>!<a href="https://a" data-href="https://a" rel="noreferrer">x</a></p>',
+	);
+});
+
+test("a link title is dropped rather than folded into the target", () => {
+	assert.equal(
+		renderMarkdown('[x](https://example.com "title")'),
+		'<p><a href="https://example.com" data-href="https://example.com" rel="noreferrer">x</a></p>',
+	);
+
+	// The scheme check judges the destination alone, so a title cannot smuggle
+	// a rejected target through — nor rescue one.
+	assert.doesNotMatch(renderMarkdown('[x](javascript:a "https://ok")'), /<a /);
+});
+
 test("blank lines between items make one loose list, not two lists", () => {
 	assert.equal(renderMarkdown("- a\n\n- b"), "<ul><li><p>a</p></li><li><p>b</p></li></ul>");
 
