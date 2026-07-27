@@ -7,7 +7,6 @@ contextBridge.exposeInMainWorld("viewer", {
 	onDocumentOpened: (callback) => {
 		ipcRenderer.on("viewer:document-opened", (_event, document) => callback(document));
 	},
-	openDialog: () => ipcRenderer.invoke("viewer:open-dialog"),
 	openDroppedFile: (file) => {
 		const filePath = webUtils.getPathForFile(file);
 		return ipcRenderer.invoke("viewer:open-dropped-file", filePath);

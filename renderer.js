@@ -2,7 +2,6 @@
 
 const documentView = document.querySelector("#document");
 const fileName = document.querySelector("#file-name");
-const openButton = document.querySelector("#open-button");
 
 function displayDocument(markdownDocument) {
 	if (!markdownDocument) {
@@ -16,19 +15,6 @@ function displayDocument(markdownDocument) {
 	fileName.title = markdownDocument.path;
 	document.title = `${markdownDocument.name} — Minimal Markdown Viewer`;
 }
-
-async function chooseDocument() {
-	openButton.disabled = true;
-	try {
-		displayDocument(await window.viewer.openDialog());
-	} catch (error) {
-		fileName.textContent = `Could not open file: ${error.message}`;
-	} finally {
-		openButton.disabled = false;
-	}
-}
-
-openButton.addEventListener("click", chooseDocument);
 
 let dragDepth = 0;
 

@@ -77,31 +77,9 @@ body.dragging::before {
 	z-index: 1;
 }
 
-button {
-	background: var(--text);
-	border: 0;
-	border-radius: 0.45rem;
-	color: var(--background);
-	cursor: pointer;
-	font: inherit;
-	font-size: 0.875rem;
-	font-weight: 650;
-	padding: 0.55rem 0.85rem;
-}
-
-button:hover {
-	opacity: 0.84;
-}
-
-button:focus-visible,
 .document:focus-visible {
 	outline: 2px solid var(--accent);
 	outline-offset: 2px;
-}
-
-button:disabled {
-	cursor: wait;
-	opacity: 0.55;
 }
 
 .file-name {

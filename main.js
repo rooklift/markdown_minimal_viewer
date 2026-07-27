@@ -217,8 +217,6 @@ ipcMain.handle("viewer:get-initial-document", async () => {
 	return readDocument(filePath);
 });
 
-ipcMain.handle("viewer:open-dialog", () => showOpenDialog());
-
 // A drop is the one case where the renderer names a file, and the main process
 // cannot tell a genuine drop from any other call on this channel. Holding the
 // path to the file types the viewer is for means even a compromised renderer

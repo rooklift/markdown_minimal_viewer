@@ -29,7 +29,7 @@ npm install
 npm start
 ```
 
-Open a file by dropping it on the window, using the button, or pressing **Ctrl/Command + O**. You can also pass a file at startup:
+Open a file by dropping it on the window or pressing **Ctrl/Command + O**. You can also pass a file at startup:
 
 ```sh
 npm start -- README.md
