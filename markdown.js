@@ -141,6 +141,19 @@
 		return spans;
 	}
 
+	// A code span's content, by CommonMark's stripping rule: line endings count
+	// as spaces, and one space comes off each end only when both ends have one
+	// and something besides spaces remains. The padding exists so a span can
+	// hold backticks — `` ` `` — not to be trimmed away wholesale; a span of
+	// nothing but spaces keeps them all.
+	function codeSpanContent(raw) {
+		const content = raw.replaceAll("\n", " ");
+		if (content.startsWith(" ") && content.endsWith(" ") && content.trim() !== "") {
+			return content.slice(1, -1);
+		}
+		return content;
+	}
+
 	// CommonMark judges flanking with two character classes: Unicode whitespace
 	// and Unicode punctuation (which takes in the symbol categories).
 	const UNICODE_PUNCTUATION = /[\p{P}\p{S}]/u;
@@ -563,7 +576,7 @@
 			eventIndex += 1;
 
 			if (event.span) {
-				html += `<code>${escapeHtml(text.slice(event.span.contentStart, event.span.contentEnd).trim())}</code>`;
+				html += `<code>${escapeHtml(codeSpanContent(text.slice(event.span.contentStart, event.span.contentEnd)))}</code>`;
 				index = event.span.end;
 				continue;
 			}
@@ -800,14 +813,18 @@
 				continue;
 			}
 
-			const fence = line.match(/^ {0,3}(```+|~~~+)(.*)$/);
+			const fence = line.match(/^( {0,3})(```+|~~~+)(.*)$/);
 			if (fence) {
-				const marker = fence[1];
+				const marker = fence[2];
 				const closingFence = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}\\s*$`);
+				// The fence's own indentation is structure, not content: up to
+				// that many leading spaces come off every line inside, so an
+				// indented fence yields the same code an unindented one would.
+				const contentIndent = new RegExp(`^ {0,${fence[1].length}}`);
 				const codeLines = [];
 				index += 1;
 				while (index < lines.length && !closingFence.test(lines[index])) {
-					codeLines.push(lines[index]);
+					codeLines.push(lines[index].replace(contentIndent, ""));
 					index += 1;
 				}
 				if (index < lines.length) {
@@ -817,7 +834,9 @@
 				continue;
 			}
 
-			const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+			// A closing hash run only counts when whitespace sets it apart from
+			// the text; pressed against it, the hashes are content — "# C#".
+			const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/);
 			if (heading) {
 				const level = heading[1].length;
 				output.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);

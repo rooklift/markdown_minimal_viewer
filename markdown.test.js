@@ -171,6 +171,40 @@ test("code spans pair backtick runs of exactly equal length", () => {
 	assert.equal(renderMarkdown("`foo``bar``"), "<p>`foo<code>bar</code></p>");
 });
 
+test("code spans shed one framing space but keep interior padding", () => {
+	// One space comes off each end only when both ends have one — the padding
+	// that lets a span hold a backtick — never a wholesale trim.
+	assert.equal(renderMarkdown("` x `"), "<p><code>x</code></p>");
+	assert.equal(renderMarkdown("`  x  `"), "<p><code> x </code></p>");
+	assert.equal(renderMarkdown("`` ` ``"), "<p><code>`</code></p>");
+
+	// A span of nothing but spaces has no content to set apart, so it keeps
+	// every one; one-sided padding is likewise content.
+	assert.equal(renderMarkdown("`  `"), "<p><code>  </code></p>");
+	assert.equal(renderMarkdown("` x`"), "<p><code> x</code></p>");
+});
+
+test("closing hashes need whitespace to set them apart from a heading", () => {
+	// Pressed against the text, hashes are content — headings about C# and
+	// hashtags survive whole.
+	assert.equal(renderMarkdown("# C#"), "<h1>C#</h1>");
+	assert.equal(renderMarkdown("# foo#"), "<h1>foo#</h1>");
+
+	// Separated, they are the optional closing run and vanish, trailing
+	// spaces or not.
+	assert.equal(renderMarkdown("## foo ##"), "<h2>foo</h2>");
+	assert.equal(renderMarkdown("# foo ##  "), "<h1>foo</h1>");
+});
+
+test("an indented fence sheds its indentation from the code inside", () => {
+	// Up to the fence's own indent comes off every content line, so an
+	// indented fence yields the same code an unindented one would.
+	assert.equal(renderMarkdown("  ```\n  x\n   y\n  ```"), "<pre><code>x\n y</code></pre>");
+
+	// A line shallower than the fence loses only what it has.
+	assert.equal(renderMarkdown("   ```\n x\n```"), "<pre><code>x</code></pre>");
+});
+
 test("does not treat underscores inside a word as emphasis", () => {
 	assert.equal(renderMarkdown("snake_case_here"), "<p>snake_case_here</p>");
 	assert.equal(renderMarkdown("snake__case__here"), "<p>snake__case__here</p>");
