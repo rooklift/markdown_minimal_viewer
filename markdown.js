@@ -28,13 +28,19 @@
 		return /^(?:https?|mailto):/i.test(target) ? target : null;
 	}
 
-	// escaped[i] is 1 when text[i] sits behind an odd run of backslashes. Judged once
-	// from the left of the whole string, so every scan agrees on what is escaped no
-	// matter where it starts — which is what lets a failed scan speak for later ones.
+	// CommonMark lets a backslash escape ASCII punctuation and nothing else, so the
+	// backslashes in ordinary prose — a Windows path, a TeX macro — stay literal.
+	const ESCAPABLE_CHARACTER = /[!-\/:-@\[-`{-~]/;
+
+	// escaped[i] is 1 when text[i] is punctuation behind an odd run of backslashes.
+	// Judged once from the left of the whole string, so every scan agrees on what is
+	// escaped no matter where it starts — which is what lets a failed scan speak for
+	// later ones. The render loop consumes escape pairs from this same map, so the
+	// two can never disagree about which backslashes are spent escaping.
 	function escapedPositions(text) {
 		const escaped = new Uint8Array(text.length);
 		for (let index = 0; index + 1 < text.length; index += 1) {
-			if (text[index] === "\\" && !escaped[index]) {
+			if (text[index] === "\\" && !escaped[index] && ESCAPABLE_CHARACTER.test(text[index + 1])) {
 				escaped[index + 1] = 1;
 			}
 		}
@@ -180,7 +186,7 @@
 		let index = 0;
 
 		while (index < text.length) {
-			if (text[index] === "\\" && index + 1 < text.length) {
+			if (text[index] === "\\" && escaped[index + 1]) {
 				html += escapeHtml(text[index + 1]);
 				index += 2;
 				continue;

@@ -114,6 +114,18 @@ test("backslash escapes suppress emphasis and link delimiters", () => {
 	);
 });
 
+test("a backslash before anything but punctuation is literal", () => {
+	// Only ASCII punctuation can be escaped, so the backslashes of ordinary prose
+	// survive — previously every backslash vanished into escaping its neighbour.
+	assert.equal(renderMarkdown("C:\\Users\\Owner\\notes.md"), "<p>C:\\Users\\Owner\\notes.md</p>");
+	assert.equal(renderMarkdown("a \\latex macro"), "<p>a \\latex macro</p>");
+
+	// A backslash is itself punctuation: the first escapes the second, and a
+	// delimiter after the pair is live again.
+	assert.equal(renderMarkdown("\\\\_literal_"), "<p>\\<em>literal</em></p>");
+	assert.equal(renderMarkdown("\\\\\\_no emphasis_"), "<p>\\_no emphasis_</p>");
+});
+
 test("a rejected link target does not suppress later links", () => {
 	// The bracket that owns the unsafe target renders as literal text, and so do the
 	// ones before it, but a genuine link further on still has to be found.
