@@ -50,6 +50,27 @@ test("caps nesting depth instead of exhausting the stack", () => {
 	assert.equal(nested, "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>");
 });
 
+test("keeps paragraphs wrapped when a list item holds several blocks", () => {
+	const html = renderMarkdown("- a\n  ```\n  x\n  ```\n  b");
+	assert.equal(html, "<ul><li><p>a</p>\n<pre><code>x</code></pre>\n<p>b</p></li></ul>");
+
+	// Single-paragraph items still lose the wrapper.
+	assert.equal(renderMarkdown("- one"), "<ul><li>one</li></ul>");
+});
+
+test("indented lines continue a paragraph instead of starting code", () => {
+	assert.equal(
+		renderMarkdown("A sentence that\n    continues indented."),
+		"<p>A sentence that continues indented.</p>",
+	);
+
+	// Indented code still works when it is not interrupting a paragraph.
+	assert.equal(
+		renderMarkdown("Intro:\n\n    code here"),
+		"<p>Intro:</p>\n<pre><code>code here</code></pre>",
+	);
+});
+
 test("backslash escapes suppress emphasis and link delimiters", () => {
 	assert.equal(renderMarkdown("\\_not em\\_"), "<p>_not em_</p>");
 	assert.equal(renderMarkdown("*a\\*b*"), "<p><em>a*b</em></p>");

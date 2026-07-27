@@ -239,18 +239,21 @@
 	function isBlockStart(lines, index) {
 		const line = lines[index] || "";
 		const next = lines[index + 1] || "";
+		// Indented code is deliberately absent: an indented line after text is a
+		// hanging indent continuing the paragraph, not the start of a code block.
 		return /^ {0,3}(#{1,6})\s+/.test(line)
 			|| /^ {0,3}(```+|~~~+)/.test(line)
 			|| /^ {0,3}>\s?/.test(line)
 			|| /^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$/.test(line)
-			|| /^ {4}\S/.test(line)
 			|| listMatch(line) !== null
 			|| (/^\s*(=+|-+)\s*$/.test(next) && line.trim() !== "");
 	}
 
+	// Paragraph text is escaped, so an interior </p> can only be a real block
+	// boundary — unwrapping across one would splice tags out of a multi-block item.
 	function unwrapSingleParagraph(html) {
 		const match = html.match(/^<p>([\s\S]*)<\/p>$/);
-		return match ? match[1] : html;
+		return match && !match[1].includes("</p>") ? match[1] : html;
 	}
 
 	function renderList(lines, startIndex, depth = 0) {
