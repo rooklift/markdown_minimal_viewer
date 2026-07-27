@@ -40,9 +40,103 @@
 		return -1;
 	}
 
+	function isWordCharacter(character) {
+		return character !== undefined && /[\p{L}\p{N}]/u.test(character);
+	}
+
+	// Consecutive markers act as one delimiter, so flanking is judged from the
+	// characters on either side of the whole run rather than a single marker.
+	function runStart(text, index, marker) {
+		let start = index;
+		while (start > 0 && text[start - 1] === marker) {
+			start -= 1;
+		}
+		return start;
+	}
+
+	function runEnd(text, index, marker) {
+		let end = index;
+		while (end < text.length && text[end] === marker) {
+			end += 1;
+		}
+		return end;
+	}
+
+	// One linear pass. A rejected `_` run is skipped whole rather than re-scanned from
+	// its second character, which keeps pathological delimiter runs from going quadratic.
+	function findClosingEmphasis(text, start, marker) {
+		let index = start;
+
+		while (index <= text.length - marker.length) {
+			if (text[index] === "\\") {
+				index += 2;
+				continue;
+			}
+			if (text.startsWith(marker, index)) {
+				if (marker[0] !== "_") {
+					return index;
+				}
+				const after = runEnd(text, index, "_");
+				if (!isWordCharacter(text[after])) {
+					return index;
+				}
+				index = after;
+				continue;
+			}
+			index += 1;
+		}
+
+		return -1;
+	}
+
 	function renderInline(text, depth = 0) {
 		if (depth > MAX_NESTING_DEPTH) {
 			return escapeHtml(text);
+		}
+
+		// If no closer exists from one point, none exists from any later point, so a
+		// failed scan is worth remembering: without this a long `_` run rescans the
+		// rest of the text once per character. Backslashes shift the scan's escape
+		// alignment and would break that guarantee, so skip the shortcut when present.
+		const hasEscape = text.includes("\\");
+		const exhausted = { _: Infinity, __: Infinity };
+
+		// Every position in a run shares one run start, and the loop usually steps
+		// through a run one character at a time, so carry the last answer forward
+		// rather than walking the run again from each of its characters.
+		let cachedRunIndex = -1;
+		let cachedRunStart = -1;
+
+		// CommonMark allows `*` to emphasise inside a word but not `_`, so identifiers
+		// and file names such as snake_case_here survive intact.
+		function canOpen(index, marker) {
+			if (marker[0] !== "_") {
+				return true;
+			}
+
+			// Reused both for a second marker tried at the same position and for the
+			// next character of the same run.
+			const sameRun = cachedRunIndex === index
+				|| (cachedRunIndex === index - 1 && text[index - 1] === "_");
+			const start = sameRun ? cachedRunStart : runStart(text, index, "_");
+			cachedRunIndex = index;
+			cachedRunStart = start;
+
+			return !isWordCharacter(text[start - 1]);
+		}
+
+		function findCloser(start, marker) {
+			if (marker[0] !== "_") {
+				return findClosingEmphasis(text, start, marker);
+			}
+			if (!hasEscape && start >= exhausted[marker]) {
+				return -1;
+			}
+			const end = findClosingEmphasis(text, start, marker);
+			if (end === -1 && start < exhausted[marker]) {
+				exhausted[marker] = start;
+			}
+			return end;
 		}
 
 		let html = "";
@@ -85,8 +179,8 @@
 			}
 
 			const strongMarker = text.startsWith("**", index) ? "**" : text.startsWith("__", index) ? "__" : null;
-			if (strongMarker) {
-				const end = findClosingBracket(text, index + 2, strongMarker);
+			if (strongMarker && canOpen(index, strongMarker)) {
+				const end = findCloser(index + 2, strongMarker);
 				if (end > index + 2) {
 					html += `<strong>${renderInline(text.slice(index + 2, end), depth + 1)}</strong>`;
 					index = end + 2;
@@ -94,9 +188,9 @@
 				}
 			}
 
-			if (text[index] === "*" || text[index] === "_") {
-				const marker = text[index];
-				const end = findClosingBracket(text, index + 1, marker);
+			const emphasisMarker = text[index] === "*" || text[index] === "_" ? text[index] : null;
+			if (emphasisMarker && canOpen(index, emphasisMarker)) {
+				const end = findCloser(index + 1, emphasisMarker);
 				if (end > index + 1) {
 					html += `<em>${renderInline(text.slice(index + 1, end), depth + 1)}</em>`;
 					index = end + 1;

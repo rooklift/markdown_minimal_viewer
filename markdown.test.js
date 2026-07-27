@@ -27,6 +27,19 @@ test("escapes raw HTML in prose and code blocks", () => {
 	assert.match(html, /&lt;b&gt;code&lt;\/b&gt;/);
 });
 
+test("does not treat underscores inside a word as emphasis", () => {
+	assert.equal(renderMarkdown("snake_case_here"), "<p>snake_case_here</p>");
+	assert.equal(renderMarkdown("snake__case__here"), "<p>snake__case__here</p>");
+	assert.equal(renderMarkdown("my_file_name.txt"), "<p>my_file_name.txt</p>");
+
+	// Asterisks may still emphasise inside a word, and word-external underscores work.
+	assert.equal(renderMarkdown("foo*bar*baz"), "<p>foo<em>bar</em>baz</p>");
+	assert.equal(renderMarkdown("_foo_ and __bar__"), "<p><em>foo</em> and <strong>bar</strong></p>");
+
+	// A run that cannot close is skipped in favour of one that can.
+	assert.equal(renderMarkdown("_foo_bar_"), "<p><em>foo_bar</em></p>");
+});
+
 test("caps nesting depth instead of exhausting the stack", () => {
 	const deepLists = Array.from({ length: 20000 }, (_, i) => " ".repeat(i * 2) + "- x").join("\n");
 	assert.doesNotThrow(() => renderMarkdown(deepLists));
