@@ -18,15 +18,8 @@ Raw HTML is displayed as text rather than executed. Only `http`, `https`, and `m
 
 If Electron is installed globally on Windows, double-click `start.bat` or run:
 
-```bat
-start.bat
-```
-
-Otherwise, install the project's only dependency and start it:
-
 ```sh
-npm install
-npm start
+electron .
 ```
 
 Open a file by dropping it on the window or pressing **Ctrl/Command + O**. You can also pass a file at startup:
