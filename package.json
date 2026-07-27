@@ -1,0 +1,15 @@
+{
+  "name": "minimal-markdown-viewer",
+  "version": "1.0.0",
+  "description": "A tiny, dependency-free Markdown viewer for Electron",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test --test-isolation=none"
+  },
+  "devDependencies": {
+    "electron": "latest"
+  },
+  "license": "MIT",
+  "private": true
+}

@@ -1,0 +1,244 @@
+:root {
+	color-scheme: light dark;
+	font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	font-size: 16px;
+	--background: #f7f6f2;
+	--surface: rgba(255, 255, 255, 0.82);
+	--text: #252521;
+	--muted: #74736c;
+	--line: #dddcd5;
+	--accent: #356859;
+	--code: #ecebe5;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--background: #1c1d1b;
+		--surface: rgba(31, 32, 30, 0.9);
+		--text: #eeeee8;
+		--muted: #a2a29a;
+		--line: #3d3e39;
+		--accent: #8fc9b5;
+		--code: #292a27;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	height: 100%;
+	margin: 0;
+}
+
+body {
+	background: var(--background);
+	color: var(--text);
+}
+
+body::before {
+	background: color-mix(in srgb, var(--background) 82%, transparent);
+	border: 3px dashed var(--accent);
+	border-radius: 0.8rem;
+	color: var(--accent);
+	content: "Drop Markdown file to open";
+	display: grid;
+	font-size: 1.15rem;
+	font-weight: 700;
+	inset: 0.75rem;
+	letter-spacing: -0.01em;
+	opacity: 0;
+	place-items: center;
+	pointer-events: none;
+	position: fixed;
+	transform: scale(0.99);
+	transition: opacity 120ms ease, transform 120ms ease;
+	z-index: 10;
+}
+
+body.dragging::before {
+	opacity: 1;
+	transform: scale(1);
+}
+
+.toolbar {
+	align-items: center;
+	backdrop-filter: blur(14px);
+	background: var(--surface);
+	border-bottom: 1px solid var(--line);
+	display: flex;
+	gap: 0.9rem;
+	height: 3.5rem;
+	padding: 0 1rem;
+	position: fixed;
+	inset: 0 0 auto;
+	z-index: 1;
+}
+
+button {
+	background: var(--text);
+	border: 0;
+	border-radius: 0.45rem;
+	color: var(--background);
+	cursor: pointer;
+	font: inherit;
+	font-size: 0.875rem;
+	font-weight: 650;
+	padding: 0.55rem 0.85rem;
+}
+
+button:hover {
+	opacity: 0.84;
+}
+
+button:focus-visible,
+.document:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+button:disabled {
+	cursor: wait;
+	opacity: 0.55;
+}
+
+.file-name {
+	color: var(--muted);
+	font-size: 0.82rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.document {
+	height: 100%;
+	overflow: auto;
+	padding: 6rem max(1.5rem, calc((100vw - 46rem) / 2)) 8rem;
+}
+
+.document > :first-child {
+	margin-top: 0;
+}
+
+.document h1,
+.document h2,
+.document h3,
+.document h4,
+.document h5,
+.document h6 {
+	letter-spacing: -0.025em;
+	line-height: 1.2;
+	margin: 1.8em 0 0.6em;
+}
+
+.document h1 {
+	font-size: clamp(2rem, 6vw, 3.1rem);
+}
+
+.document h2 {
+	border-bottom: 1px solid var(--line);
+	font-size: 1.65rem;
+	padding-bottom: 0.35em;
+}
+
+.document p,
+.document li {
+	line-height: 1.72;
+}
+
+.document p {
+	margin: 0.9em 0;
+}
+
+.document ul,
+.document ol {
+	padding-left: 1.65rem;
+}
+
+.document li + li {
+	margin-top: 0.3rem;
+}
+
+.document a {
+	color: var(--accent);
+	text-decoration-thickness: 0.08em;
+	text-underline-offset: 0.16em;
+}
+
+.document blockquote {
+	border-left: 0.22rem solid var(--accent);
+	color: var(--muted);
+	margin: 1.4rem 0;
+	padding: 0.1rem 0 0.1rem 1rem;
+}
+
+.document code {
+	background: var(--code);
+	border-radius: 0.25rem;
+	font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+	font-size: 0.9em;
+	padding: 0.12em 0.3em;
+}
+
+.document pre {
+	background: var(--code);
+	border: 1px solid var(--line);
+	border-radius: 0.55rem;
+	line-height: 1.55;
+	overflow: auto;
+	padding: 1rem;
+}
+
+.document pre code {
+	background: none;
+	padding: 0;
+}
+
+.document hr {
+	border: 0;
+	border-top: 1px solid var(--line);
+	margin: 2rem 0;
+}
+
+.empty-state {
+	margin: 18vh auto 0;
+	max-width: 34rem;
+	text-align: center;
+}
+
+.empty-state h1 {
+	margin: 0.2rem 0 0.6rem;
+}
+
+.empty-state p {
+	color: var(--muted);
+}
+
+.eyebrow {
+	color: var(--accent) !important;
+	font-size: 0.75rem;
+	font-weight: 750;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+kbd {
+	background: var(--code);
+	border: 1px solid var(--line);
+	border-radius: 0.25rem;
+	font-family: inherit;
+	font-size: 0.8em;
+	padding: 0.12rem 0.3rem;
+}
+
+@media (max-width: 520px) {
+	.toolbar {
+		height: 3.25rem;
+	}
+
+	.document {
+		padding-top: 5rem;
+	}
+}

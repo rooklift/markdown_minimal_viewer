@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self';">
+	<title>Minimal Markdown Viewer</title>
+	<link rel="stylesheet" href="renderer.css">
+	<script defer src="markdown.js"></script>
+	<script defer src="renderer.js"></script>
+</head>
+<body>
+	<header class="toolbar">
+		<button id="open-button" type="button">Open Markdown</button>
+		<span id="file-name" class="file-name">No file open</span>
+	</header>
+	<main id="document" class="document" tabindex="-1">
+		<section class="empty-state">
+			<p class="eyebrow">Minimal Markdown Viewer</p>
+			<h1>Open a Markdown file</h1>
+			<p>Drop a file here, use the button above, press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>O</kbd>, or pass a file on the command line.</p>
+		</section>
+	</main>
+</body>
+</html>

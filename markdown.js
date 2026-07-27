@@ -1,0 +1,299 @@
+(function exposeMarkdownRenderer(globalObject) {
+	"use strict";
+
+	function escapeHtml(value) {
+		return String(value)
+			.replaceAll("&", "&amp;")
+			.replaceAll("<", "&lt;")
+			.replaceAll(">", "&gt;")
+			.replaceAll('"', "&quot;")
+			.replaceAll("'", "&#39;");
+	}
+
+	function safeLinkTarget(value) {
+		const target = value.trim();
+		if (!target || /[\u0000-\u001f\u007f]/.test(target)) {
+			return null;
+		}
+
+		const scheme = target.match(/^([a-z][a-z\d+.-]*):/i);
+		if (scheme && !["http", "https", "mailto"].includes(scheme[1].toLowerCase())) {
+			return null;
+		}
+
+		return target;
+	}
+
+	function findClosingBracket(text, start, marker) {
+		for (let index = start; index <= text.length - marker.length; index += 1) {
+			if (text[index] === "\\") {
+				index += 1;
+			} else if (text.startsWith(marker, index)) {
+				return index;
+			}
+		}
+		return -1;
+	}
+
+	function renderInline(text) {
+		let html = "";
+		let index = 0;
+
+		while (index < text.length) {
+			if (text[index] === "\\" && index + 1 < text.length) {
+				html += escapeHtml(text[index + 1]);
+				index += 2;
+				continue;
+			}
+
+			if (text[index] === "`") {
+				const ticks = text.slice(index).match(/^`+/)[0];
+				const end = text.indexOf(ticks, index + ticks.length);
+				if (end !== -1) {
+					const code = text.slice(index + ticks.length, end).trim();
+					html += `<code>${escapeHtml(code)}</code>`;
+					index = end + ticks.length;
+					continue;
+				}
+			}
+
+			if (text[index] === "[") {
+				const labelEnd = findClosingBracket(text, index + 1, "](");
+				if (labelEnd !== -1) {
+					const targetEnd = findClosingBracket(text, labelEnd + 2, ")");
+					if (targetEnd !== -1) {
+						const label = text.slice(index + 1, labelEnd);
+						const rawTarget = text.slice(labelEnd + 2, targetEnd);
+						const target = safeLinkTarget(rawTarget);
+						if (target) {
+							const attribute = escapeHtml(target);
+							html += `<a href="${attribute}" data-href="${attribute}" rel="noreferrer">${renderInline(label)}</a>`;
+							index = targetEnd + 1;
+							continue;
+						}
+					}
+				}
+			}
+
+			const strongMarker = text.startsWith("**", index) ? "**" : text.startsWith("__", index) ? "__" : null;
+			if (strongMarker) {
+				const end = findClosingBracket(text, index + 2, strongMarker);
+				if (end > index + 2) {
+					html += `<strong>${renderInline(text.slice(index + 2, end))}</strong>`;
+					index = end + 2;
+					continue;
+				}
+			}
+
+			if (text[index] === "*" || text[index] === "_") {
+				const marker = text[index];
+				const end = findClosingBracket(text, index + 1, marker);
+				if (end > index + 1) {
+					html += `<em>${renderInline(text.slice(index + 1, end))}</em>`;
+					index = end + 1;
+					continue;
+				}
+			}
+
+			if (text[index] === "\n") {
+				const hardBreak = index >= 2 && text.slice(index - 2, index) === "  ";
+				if (hardBreak) {
+					html = html.slice(0, -2) + "<br>";
+				} else {
+					html += " ";
+				}
+				index += 1;
+				continue;
+			}
+
+			html += escapeHtml(text[index]);
+			index += 1;
+		}
+
+		return html;
+	}
+
+	function listMatch(line) {
+		const match = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
+		if (!match) {
+			return null;
+		}
+
+		return {
+			content: match[3],
+			indent: match[1].replaceAll("\t", "    ").length,
+			ordered: /^\d/.test(match[2]),
+			start: /^\d/.test(match[2]) ? Number.parseInt(match[2], 10) : null,
+		};
+	}
+
+	function isBlockStart(lines, index) {
+		const line = lines[index] || "";
+		const next = lines[index + 1] || "";
+		return /^ {0,3}(#{1,6})\s+/.test(line)
+			|| /^ {0,3}(```+|~~~+)/.test(line)
+			|| /^ {0,3}>\s?/.test(line)
+			|| /^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$/.test(line)
+			|| /^ {4}\S/.test(line)
+			|| listMatch(line) !== null
+			|| (/^\s*(=+|-+)\s*$/.test(next) && line.trim() !== "");
+	}
+
+	function unwrapSingleParagraph(html) {
+		const match = html.match(/^<p>([\s\S]*)<\/p>$/);
+		return match ? match[1] : html;
+	}
+
+	function renderList(lines, startIndex) {
+		const first = listMatch(lines[startIndex]);
+		const baseIndent = first.indent;
+		const ordered = first.ordered;
+		const tag = ordered ? "ol" : "ul";
+		const startAttribute = ordered && first.start !== 1 ? ` start="${first.start}"` : "";
+		let html = `<${tag}${startAttribute}>`;
+		let index = startIndex;
+
+		while (index < lines.length) {
+			const item = listMatch(lines[index]);
+			if (!item || item.indent !== baseIndent || item.ordered !== ordered) {
+				break;
+			}
+
+			index += 1;
+			const contentLines = [item.content];
+			let nestedHtml = "";
+
+			while (index < lines.length) {
+				const nestedItem = listMatch(lines[index]);
+				if (nestedItem) {
+					if (nestedItem.indent > baseIndent) {
+						const nested = renderList(lines, index);
+						nestedHtml += nested.html;
+						index = nested.nextIndex;
+						continue;
+					}
+					break;
+				}
+
+				if (lines[index].trim() === "") {
+					break;
+				}
+
+				const indentation = (lines[index].match(/^\s*/) || [""])[0].replaceAll("\t", "    ").length;
+				if (indentation > baseIndent) {
+					contentLines.push(lines[index].trim());
+					index += 1;
+					continue;
+				}
+				break;
+			}
+
+			const content = unwrapSingleParagraph(renderBlocks(contentLines).html);
+			html += `<li>${content}${nestedHtml}</li>`;
+		}
+
+		html += `</${tag}>`;
+		return { html, nextIndex: index };
+	}
+
+	function renderBlocks(lines, initialIndex = 0) {
+		const output = [];
+		let index = initialIndex;
+
+		while (index < lines.length) {
+			const line = lines[index];
+
+			if (line.trim() === "") {
+				index += 1;
+				continue;
+			}
+
+			const fence = line.match(/^ {0,3}(```+|~~~+)(.*)$/);
+			if (fence) {
+				const marker = fence[1];
+				const codeLines = [];
+				index += 1;
+				while (index < lines.length && !new RegExp(`^ {0,3}${marker[0]}{${marker.length},}\\s*$`).test(lines[index])) {
+					codeLines.push(lines[index]);
+					index += 1;
+				}
+				if (index < lines.length) {
+					index += 1;
+				}
+				output.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+				continue;
+			}
+
+			const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+			if (heading) {
+				const level = heading[1].length;
+				output.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+				index += 1;
+				continue;
+			}
+
+			if (index + 1 < lines.length && /^\s*(=+|-+)\s*$/.test(lines[index + 1]) && line.trim()) {
+				const level = lines[index + 1].trim()[0] === "=" ? 1 : 2;
+				output.push(`<h${level}>${renderInline(line.trim())}</h${level}>`);
+				index += 2;
+				continue;
+			}
+
+			if (/^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$/.test(line)) {
+				output.push("<hr>");
+				index += 1;
+				continue;
+			}
+
+			if (/^ {0,3}>\s?/.test(line)) {
+				const quoteLines = [];
+				while (index < lines.length && /^ {0,3}>\s?/.test(lines[index])) {
+					quoteLines.push(lines[index].replace(/^ {0,3}>\s?/, ""));
+					index += 1;
+				}
+				output.push(`<blockquote>${renderBlocks(quoteLines).html}</blockquote>`);
+				continue;
+			}
+
+			if (/^ {4}/.test(line)) {
+				const codeLines = [];
+				while (index < lines.length && (/^ {4}/.test(lines[index]) || lines[index] === "")) {
+					codeLines.push(lines[index].replace(/^ {4}/, ""));
+					index += 1;
+				}
+				output.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+				continue;
+			}
+
+			if (listMatch(line)) {
+				const list = renderList(lines, index);
+				output.push(list.html);
+				index = list.nextIndex;
+				continue;
+			}
+
+			const paragraph = [line.trimStart()];
+			index += 1;
+			while (index < lines.length && lines[index].trim() !== "" && !isBlockStart(lines, index)) {
+				paragraph.push(lines[index].trimStart());
+				index += 1;
+			}
+			output.push(`<p>${renderInline(paragraph.join("\n"))}</p>`);
+		}
+
+		return { html: output.join("\n"), nextIndex: index };
+	}
+
+	function renderMarkdown(markdown) {
+		const normalized = String(markdown ?? "").replace(/\r\n?/g, "\n");
+		return renderBlocks(normalized.split("\n")).html;
+	}
+
+	const api = { escapeHtml, renderMarkdown };
+	if (typeof module !== "undefined" && module.exports) {
+		module.exports = api;
+	}
+	if (globalObject) {
+		globalObject.markdown = api;
+	}
+})(typeof window === "undefined" ? null : window);
