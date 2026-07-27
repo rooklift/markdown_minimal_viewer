@@ -23,6 +23,12 @@
 		// The destination ends at the first whitespace; what follows is a
 		// CommonMark title, dropped rather than folded into the target.
 		const target = value.trim().match(/^\S*/)[0];
+
+		// The main process refuses to open targets longer than this, so marking
+		// one up would only make a link that goes nowhere when clicked.
+		if (target.length > 2048) {
+			return null;
+		}
 		if (!target || /[\u0000-\u001f\u007f]/.test(target)) {
 			return null;
 		}

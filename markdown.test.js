@@ -89,6 +89,16 @@ test("a link title is dropped rather than folded into the target", () => {
 	assert.doesNotMatch(renderMarkdown('[x](javascript:a "https://ok")'), /<a /);
 });
 
+test("a target too long for the main process to open never becomes a link", () => {
+	// The open-link handler drops targets over 2048 characters, so the renderer
+	// draws no link it knows would go nowhere. At the limit it still works.
+	const base = "https://example.com/";
+	const atLimit = base + "a".repeat(2048 - base.length);
+	const overLimit = atLimit + "a";
+	assert.match(renderMarkdown(`[x](${atLimit})`), /<a /);
+	assert.doesNotMatch(renderMarkdown(`[x](${overLimit})`), /<a /);
+});
+
 test("blank lines between items make one loose list, not two lists", () => {
 	assert.equal(renderMarkdown("- a\n\n- b"), "<ul><li><p>a</p></li><li><p>b</p></li></ul>");
 
