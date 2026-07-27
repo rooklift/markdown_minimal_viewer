@@ -113,6 +113,47 @@ test("does not treat underscores inside a word as emphasis", () => {
 	assert.equal(renderMarkdown("_foo_bar_"), "<p><em>foo_bar</em></p>");
 });
 
+test("emphasis follows CommonMark flanking and pairing", () => {
+	// A marker beside whitespace faces the wrong way to open or close there,
+	// so starred arithmetic stays prose.
+	assert.equal(renderMarkdown("a * b * c"), "<p>a * b * c</p>");
+	assert.equal(renderMarkdown("2 * 3 * 4 = 24"), "<p>2 * 3 * 4 = 24</p>");
+
+	// A ** closer pairs with the nearest ** opener, not with the first * the
+	// outer emphasis happens to meet.
+	assert.equal(
+		renderMarkdown("*em **strong** em*"),
+		"<p><em>em <strong>strong</strong> em</em></p>",
+	);
+
+	// A triple run spends two markers as strong and its last as em, from the
+	// ends that leave the nesting whole.
+	assert.equal(renderMarkdown("***both***"), "<p><em><strong>both</strong></em></p>");
+	assert.equal(renderMarkdown("foo***bar***baz"), "<p>foo<em><strong>bar</strong></em>baz</p>");
+
+	// The rule of three: the inner ** may not take one marker from the outer
+	// *, so it waits for its matching ** and the outer * closes at the end.
+	assert.equal(
+		renderMarkdown("*foo**bar**baz*"),
+		"<p><em>foo<strong>bar</strong>baz</em></p>",
+	);
+
+	// Markers are spent from an opener's right end and a closer's left, and
+	// what neither side can spend stays literal.
+	assert.equal(renderMarkdown("**a*"), "<p>*<em>a</em></p>");
+	assert.equal(renderMarkdown("*a**"), "<p><em>a</em>*</p>");
+});
+
+test("code spans bind tighter than emphasis", () => {
+	// The markers inside the spans are no delimiters, so the openers out front
+	// find no partner and stay literal.
+	assert.equal(renderMarkdown("*a `b*c`"), "<p>*a <code>b*c</code></p>");
+	assert.equal(renderMarkdown("_a `b_c`"), "<p>_a <code>b_c</code></p>");
+
+	// Emphasis may still wrap a span whole.
+	assert.equal(renderMarkdown("*a `b` c*"), "<p><em>a <code>b</code> c</em></p>");
+});
+
 test("caps nesting depth instead of exhausting the stack", () => {
 	const deepLists = Array.from({ length: 20000 }, (_, i) => " ".repeat(i * 2) + "- x").join("\n");
 	assert.doesNotThrow(() => renderMarkdown(deepLists));
@@ -204,6 +245,10 @@ test("pathological delimiter runs render in linear time", () => {
 		// speak for another scan; the balance index answers each in one lookup
 		// where a walk would rescan the rest of the text.
 		"[a]((b)".repeat(32000),
+		// Each ** here fails the rule of three against every stacked * opener.
+		// The per-kind search floor records that futile depth once; without it
+		// every closer walks the whole pile of openers again.
+		" *a".repeat(40000) + "a**a".repeat(20000),
 	];
 
 	for (const text of cases) {

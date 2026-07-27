@@ -56,20 +56,6 @@
 		return -1;
 	}
 
-	function isWordCharacter(character) {
-		return character !== undefined && /[\p{L}\p{N}]/u.test(character);
-	}
-
-	// Consecutive markers act as one delimiter, so flanking is judged from the
-	// characters on either side of the whole run rather than a single marker.
-	function runStart(text, index, marker) {
-		let start = index;
-		while (start > 0 && text[start - 1] === marker) {
-			start -= 1;
-		}
-		return start;
-	}
-
 	function runEnd(text, index, marker) {
 		let end = index;
 		while (end < text.length && text[end] === marker) {
@@ -79,10 +65,7 @@
 	}
 
 	// Backtick runs, measured once. A code span closes at the next run at least as
-	// long as its opener, so a search can hop run to run instead of rescanning text —
-	// and, knowing the longest length that remains, a doomed search can give up at
-	// once. The failed-scan memo cannot do this job: each backtick of an unclosed
-	// run is a fresh opener of a different length, so no two scans share a marker.
+	// long as its opener, so pairing hops run to run instead of rescanning text.
 	function backtickRuns(text) {
 		const runs = [];
 		let index = text.indexOf("`");
@@ -94,27 +77,181 @@
 		return runs;
 	}
 
-	// One linear pass. A rejected `_` run is skipped whole rather than re-scanned from
-	// its second character, which keeps pathological delimiter runs from going quadratic.
-	function findClosingEmphasis(text, escaped, start, marker) {
-		let index = start;
+	// Code spans, resolved left to right before anything else looks at the text.
+	// An opener takes the first later run long enough to close it; opening ticks
+	// that no later run can match stay literal, and a closing run longer than
+	// needed leaves its tail as the next opener. Settling spans first is what
+	// lets the emphasis pass refuse delimiters inside them: CommonMark binds
+	// code tighter than emphasis, so the * inside `a*b` may close nothing.
+	function computeCodeSpans(text, escaped) {
+		const runs = backtickRuns(text);
 
-		while (index <= text.length - marker.length) {
-			if (!escaped[index] && text.startsWith(marker, index)) {
-				if (marker[0] !== "_") {
-					return index;
-				}
-				const after = runEnd(text, index, "_");
-				if (!isWordCharacter(text[after])) {
-					return index;
-				}
-				index = after;
-				continue;
-			}
-			index += 1;
+		// longestFrom[r] is the longest run length from run r onward, so an opener
+		// longer than everything after it sheds its hopeless leading ticks at once.
+		const longestFrom = new Array(runs.length + 1).fill(0);
+		for (let r = runs.length - 1; r >= 0; r -= 1) {
+			longestFrom[r] = Math.max(runs[r].end - runs[r].start, longestFrom[r + 1]);
 		}
 
-		return -1;
+		const spans = [];
+		let runIndex = 0;
+		let position = 0;
+		while (runIndex < runs.length) {
+			const run = runs[runIndex];
+			let start = Math.max(run.start, position);
+			if (escaped[start]) {
+				// Only a run's first tick can be escaped, and an escaped tick is
+				// literal text, not an opener.
+				start += 1;
+			}
+			if (start >= run.end || longestFrom[runIndex + 1] === 0) {
+				runIndex += 1;
+				continue;
+			}
+			let ticks = run.end - start;
+			if (ticks > longestFrom[runIndex + 1]) {
+				start = run.end - longestFrom[runIndex + 1];
+				ticks = longestFrom[runIndex + 1];
+			}
+			let closer = runIndex + 1;
+			while (runs[closer].end - runs[closer].start < ticks) {
+				closer += 1;
+			}
+			spans.push({
+				start,
+				contentStart: start + ticks,
+				contentEnd: runs[closer].start,
+				end: runs[closer].start + ticks,
+			});
+			position = runs[closer].start + ticks;
+			runIndex = closer;
+		}
+		return spans;
+	}
+
+	// CommonMark judges flanking with two character classes: Unicode whitespace
+	// and Unicode punctuation (which takes in the symbol categories).
+	const UNICODE_PUNCTUATION = /[\p{P}\p{S}]/u;
+
+	function isFlankingWhitespace(character) {
+		return character === undefined || /\s/u.test(character);
+	}
+
+	function isFlankingPunctuation(character) {
+		return character !== undefined && UNICODE_PUNCTUATION.test(character);
+	}
+
+	// Every * and _ run with CommonMark's flanking verdicts, consecutive markers
+	// judged as one delimiter from the characters on either side of the whole
+	// run. A run followed by whitespace cannot open and one preceded by it
+	// cannot close — what keeps "a * b * c" prose — and the punctuation clauses
+	// settle runs pressed against punctuation. `_` is stricter: flanked by
+	// letters on both sides it can do neither, so snake_case_here survives.
+	// Runs inside code spans are no delimiters at all.
+	function emphasisDelimiters(text, escaped, codeSpans) {
+		const delimiters = [];
+		let spanIndex = 0;
+		let index = 0;
+		while (index < text.length) {
+			if (spanIndex < codeSpans.length && index >= codeSpans[spanIndex].start) {
+				index = codeSpans[spanIndex].end;
+				spanIndex += 1;
+				continue;
+			}
+			const character = text[index];
+			if ((character !== "*" && character !== "_") || escaped[index]) {
+				index += 1;
+				continue;
+			}
+			let end = index;
+			while (end < text.length && text[end] === character && !escaped[end]) {
+				end += 1;
+			}
+			const before = text[index - 1];
+			const after = text[end];
+			const leftFlanking = !isFlankingWhitespace(after)
+				&& (!isFlankingPunctuation(after) || isFlankingWhitespace(before) || isFlankingPunctuation(before));
+			const rightFlanking = !isFlankingWhitespace(before)
+				&& (!isFlankingPunctuation(before) || isFlankingWhitespace(after) || isFlankingPunctuation(after));
+			const canOpen = character === "*" ? leftFlanking : leftFlanking && (!rightFlanking || isFlankingPunctuation(before));
+			const canClose = character === "*" ? rightFlanking : rightFlanking && (!leftFlanking || isFlankingPunctuation(after));
+			if (canOpen || canClose) {
+				delimiters.push({ character, start: index, end, length: end - index, originalLength: end - index, canOpen, canClose });
+			}
+			index = end;
+		}
+		return delimiters;
+	}
+
+	// CommonMark's rule of three: when either side of a candidate pair could
+	// face both ways, run lengths summing to a multiple of three cannot pair —
+	// unless both are multiples of three themselves. This is what sends the
+	// inner ** of *foo**bar**baz* looking past the outer * for its partner.
+	function breaksRuleOfThree(opener, closer) {
+		return (closer.canOpen || opener.canClose)
+			&& (opener.originalLength + closer.originalLength) % 3 === 0
+			&& (opener.originalLength % 3 !== 0 || closer.originalLength % 3 !== 0);
+	}
+
+	// CommonMark's delimiter matching. Each closing run pairs with the nearest
+	// compatible opener still on the stack, two markers at a time as <strong>
+	// and then singly as <em>; an opener spends markers from its right end and
+	// a closer from its left, which is how ***a*** nests instead of breaking.
+	// Openers left between a matched pair sit inside the new emphasis and can
+	// never pair outward, so they leave the stack with it. Pairs are keyed by
+	// the position of the opener's first spent marker — the exact index at
+	// which the render loop will meet them.
+	function matchEmphasisPairs(delimiters) {
+		const pairs = new Map();
+		const openers = [];
+
+		// A search that came up empty speaks for every later closer of the same
+		// kind — same character, length class, and facing — so each kind records
+		// the depth below which looking again is pointless. Without this, a pile
+		// of openers that all fail the rule of three is rescanned whole by every
+		// closer that follows.
+		const searchFloor = new Map();
+
+		for (const delimiter of delimiters) {
+			if (!delimiter.canClose) {
+				if (delimiter.canOpen) {
+					openers.push(delimiter);
+				}
+				continue;
+			}
+			while (delimiter.length > 0) {
+				const kind = `${delimiter.character}/${delimiter.originalLength % 3}/${delimiter.canOpen}`;
+				const floor = searchFloor.get(kind) || 0;
+				let openerIndex = openers.length - 1;
+				while (openerIndex >= floor
+					&& (openers[openerIndex].character !== delimiter.character
+						|| breaksRuleOfThree(openers[openerIndex], delimiter))) {
+					openerIndex -= 1;
+				}
+				if (openerIndex < floor) {
+					searchFloor.set(kind, openers.length);
+					break;
+				}
+				const opener = openers[openerIndex];
+				const spend = Math.min(2, opener.length, delimiter.length);
+				opener.length -= spend;
+				opener.end -= spend;
+				pairs.set(opener.end, { spend, closerStart: delimiter.start });
+				delimiter.length -= spend;
+				delimiter.start += spend;
+				const keep = opener.length > 0 ? openerIndex + 1 : openerIndex;
+				openers.length = keep;
+				for (const [recordedKind, recordedFloor] of searchFloor) {
+					if (recordedFloor > keep) {
+						searchFloor.set(recordedKind, keep);
+					}
+				}
+			}
+			if (delimiter.length > 0 && delimiter.canOpen) {
+				openers.push(delimiter);
+			}
+		}
+		return pairs;
 	}
 
 	function renderInline(text, depth = 0) {
@@ -122,13 +259,36 @@
 			return escapeHtml(text);
 		}
 
-		// If no closer exists from one point, none exists from any later point, so a
-		// failed scan is worth remembering: without this a long run of `_` or `[`
-		// rescans the rest of the text once per character. That guarantee needs every
+		const escaped = escapedPositions(text);
+
+		// Code spans and emphasis are settled before rendering starts: spans
+		// first, then delimiter pairing over everything outside them. The loop
+		// below just plays the decisions back — a delimiter it meets either
+		// begins a recorded pair or is literal text.
+		const codeSpans = computeCodeSpans(text, escaped);
+		const codeSpanAt = new Map();
+		for (const span of codeSpans) {
+			codeSpanAt.set(span.start, span);
+		}
+		const emphasisPairs = matchEmphasisPairs(emphasisDelimiters(text, escaped, codeSpans));
+
+		// If no "](" exists from one point, none exists from any later point, so a
+		// failed label scan is worth remembering: without this a long run of "["
+		// rescans the rest of the text once per bracket. That guarantee needs every
 		// scan to agree on which characters are escaped, hence the precomputed map
 		// rather than counting backslashes from wherever a scan happens to start.
-		const escaped = escapedPositions(text);
-		const exhausted = { "](": Infinity, "*": Infinity, "**": Infinity, _: Infinity, __: Infinity };
+		let labelScanFailedFrom = Infinity;
+
+		function findLabelEnd(start) {
+			if (start >= labelScanFailedFrom) {
+				return -1;
+			}
+			const end = findClosingBracket(text, escaped, start, "](");
+			if (end === -1) {
+				labelScanFailedFrom = start;
+			}
+			return end;
+		}
 
 		// A link target ends at the first unescaped ")" that is not matching a "("
 		// opened inside it, so a parenthesised URL survives whole. That closer is
@@ -171,57 +331,13 @@
 			return low < closers.length ? closers[low] : -1;
 		}
 
-		// longestTickRun[r] is the longest backtick run length from run r onward, so
-		// an opener longer than everything after it fails without walking the runs.
-		const tickRuns = backtickRuns(text);
-		const longestTickRun = new Array(tickRuns.length + 1).fill(0);
-		for (let r = tickRuns.length - 1; r >= 0; r -= 1) {
-			longestTickRun[r] = Math.max(tickRuns[r].end - tickRuns[r].start, longestTickRun[r + 1]);
-		}
-		let tickRunIndex = 0;
-
-		// Every position in a run shares one run start, and the loop usually steps
-		// through a run one character at a time, so carry the last answer forward
-		// rather than walking the run again from each of its characters.
-		let cachedRunIndex = -1;
-		let cachedRunStart = -1;
-
 		// A `[` whose target turns out to be unsafe consumes nothing, and the scan that
-		// found that target succeeded, so `exhausted` has nothing to say about it. Every
-		// earlier `[` reaches this same `](` — there is no closer one, or the scan would
-		// have stopped there — and so is rejected over the same target. Without this a
-		// run of `[` before one bad link rescans the rest of the text once per bracket.
+		// found that target succeeded, so the failed-scan memo has nothing to say about
+		// it. Every earlier `[` reaches this same `](` — there is no closer one, or the
+		// scan would have stopped there — and so is rejected over the same target.
+		// Without this a run of `[` before one bad link rescans the rest of the text
+		// once per bracket.
 		let rejectedLabelEnd = -1;
-
-		// CommonMark allows `*` to emphasise inside a word but not `_`, so identifiers
-		// and file names such as snake_case_here survive intact.
-		function canOpen(index, marker) {
-			if (marker[0] !== "_") {
-				return true;
-			}
-
-			// Reused both for a second marker tried at the same position and for the
-			// next character of the same run.
-			const sameRun = cachedRunIndex === index
-				|| (cachedRunIndex === index - 1 && text[index - 1] === "_");
-			const start = sameRun ? cachedRunStart : runStart(text, index, "_");
-			cachedRunIndex = index;
-			cachedRunStart = start;
-
-			return !isWordCharacter(text[start - 1]);
-		}
-
-		function findCloser(start, marker) {
-			if (start >= exhausted[marker]) {
-				return -1;
-			}
-			const scan = marker === "](" ? findClosingBracket : findClosingEmphasis;
-			const end = scan(text, escaped, start, marker);
-			if (end === -1) {
-				exhausted[marker] = start;
-			}
-			return end;
-		}
 
 		let html = "";
 		let index = 0;
@@ -234,24 +350,16 @@
 			}
 
 			if (text[index] === "`") {
-				while (tickRuns[tickRunIndex].end <= index) {
-					tickRunIndex += 1;
-				}
-				const ticks = tickRuns[tickRunIndex].end - index;
-				if (longestTickRun[tickRunIndex + 1] >= ticks) {
-					let closer = tickRunIndex + 1;
-					while (tickRuns[closer].end - tickRuns[closer].start < ticks) {
-						closer += 1;
-					}
-					const code = text.slice(index + ticks, tickRuns[closer].start).trim();
-					html += `<code>${escapeHtml(code)}</code>`;
-					index = tickRuns[closer].start + ticks;
+				const span = codeSpanAt.get(index);
+				if (span) {
+					html += `<code>${escapeHtml(text.slice(span.contentStart, span.contentEnd).trim())}</code>`;
+					index = span.end;
 					continue;
 				}
 			}
 
 			if (text[index] === "[" && index + 1 > rejectedLabelEnd) {
-				const labelEnd = findCloser(index + 1, "](");
+				const labelEnd = findLabelEnd(index + 1);
 				if (labelEnd !== -1) {
 					const targetEnd = findClosingParen(labelEnd + 2);
 					if (targetEnd !== -1) {
@@ -269,22 +377,12 @@
 				}
 			}
 
-			const strongMarker = text.startsWith("**", index) ? "**" : text.startsWith("__", index) ? "__" : null;
-			if (strongMarker && canOpen(index, strongMarker)) {
-				const end = findCloser(index + 2, strongMarker);
-				if (end > index + 2) {
-					html += `<strong>${renderInline(text.slice(index + 2, end), depth + 1)}</strong>`;
-					index = end + 2;
-					continue;
-				}
-			}
-
-			const emphasisMarker = text[index] === "*" || text[index] === "_" ? text[index] : null;
-			if (emphasisMarker && canOpen(index, emphasisMarker)) {
-				const end = findCloser(index + 1, emphasisMarker);
-				if (end > index + 1) {
-					html += `<em>${renderInline(text.slice(index + 1, end), depth + 1)}</em>`;
-					index = end + 1;
+			if (text[index] === "*" || text[index] === "_") {
+				const pair = emphasisPairs.get(index);
+				if (pair) {
+					const tag = pair.spend === 2 ? "strong" : "em";
+					html += `<${tag}>${renderInline(text.slice(index + pair.spend, pair.closerStart), depth + 1)}</${tag}>`;
+					index = pair.closerStart + pair.spend;
 					continue;
 				}
 			}
