@@ -344,8 +344,36 @@ test("a rejected link target does not suppress later links", () => {
 		'<p>[x](javascript:a) <a href="https://example.com" data-href="https://example.com" rel="noreferrer">y</a></p>',
 	);
 
-	// Brackets ahead of a rejected target share its verdict, not its consumption.
+	// Only the nearest bracket is spent on the rejected target; the outer one
+	// finds no later "](" and stays text with it.
 	assert.equal(renderMarkdown("[a[b](javascript:a)"), "<p>[a[b](javascript:a)</p>");
+});
+
+test('a "](" closes the nearest open bracket, not the first', () => {
+	// An unmatched "[" ahead of a real link stays literal instead of swallowing
+	// the link into its own label.
+	assert.equal(
+		renderMarkdown("[a [b](https://google.com)"),
+		'<p>[a <a href="https://google.com" data-href="https://google.com" rel="noreferrer">b</a></p>',
+	);
+
+	// A bracket pair that forms no link is spent as plain text, so the "]("
+	// after it still serves the bracket before it.
+	assert.equal(
+		renderMarkdown("[a] [b](https://x)"),
+		'<p>[a] <a href="https://x" data-href="https://x" rel="noreferrer">b</a></p>',
+	);
+	assert.equal(
+		renderMarkdown("[a[b]c](https://x)"),
+		'<p><a href="https://x" data-href="https://x" rel="noreferrer">a[b]c</a></p>',
+	);
+
+	// A completed link seals off the brackets opened before it: nothing may
+	// reach across it to a later "](", so links never nest.
+	assert.equal(
+		renderMarkdown("[a [b](https://x) c](https://y)"),
+		'<p>[a <a href="https://x" data-href="https://x" rel="noreferrer">b</a> c](https://y)</p>',
+	);
 });
 
 test("pathological delimiter runs render in linear time", () => {
@@ -355,22 +383,22 @@ test("pathological delimiter runs render in linear time", () => {
 		" _a\\_".repeat(32000),
 		"[a".repeat(80000),
 		"[a](b".repeat(32000),
-		// These two scan successfully every time and still consume nothing, so the
-		// failed-scan memo never fires and they need one of their own.
+		// The lone "](" here once drew a scan from every bracket before it; the
+		// bracket stack spends at most one opener on it, safe target or not.
 		"[a".repeat(80000) + "](javascript:x)",
 		"[a".repeat(80000) + "](http://x)",
-		// Each backtick of an unclosed run opens with a different length, so the
-		// failed-scan memo cannot cover backticks; each opener measured and rescanned
-		// the rest of the text. The leading letter keeps the line a paragraph rather
-		// than a cheap code fence.
+		// Each backtick of an unclosed run opens with a different length, so no
+		// equal-length partner exists; each opener once measured and rescanned
+		// the rest of the text. The leading letter keeps the line a paragraph
+		// rather than a cheap code fence.
 		"a" + "`".repeat(200000),
 		// Every hard break spliced its two spaces back out of the rendered string,
 		// flattening the whole accumulation each time. The letters keep the lines
 		// non-blank, so this is one paragraph rather than many.
 		"a  \n".repeat(200000),
-		// Every target scan here fails at a different paren depth, so no memo can
-		// speak for another scan; the balance index answers each in one lookup
-		// where a walk would rescan the rest of the text.
+		// Every target scan here fails at a different paren depth; the balance
+		// index answers each in one lookup where a walk would rescan the rest
+		// of the text.
 		"[a]((b)".repeat(32000),
 		// Each ** here fails the rule of three against every stacked * opener.
 		// The per-kind search floor records that futile depth once; without it

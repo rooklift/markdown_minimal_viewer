@@ -43,10 +43,10 @@
 	const ESCAPABLE_CHARACTER = /[!-\/:-@\[-`{-~]/;
 
 	// escaped[i] is 1 when text[i] is punctuation behind an odd run of backslashes.
-	// Judged once from the left of the whole string, so every scan agrees on what is
-	// escaped no matter where it starts — which is what lets a failed scan speak for
-	// later ones. The render loop consumes escape pairs from this same map, so the
-	// two can never disagree about which backslashes are spent escaping.
+	// Judged once from the left of the whole string, so every pass — code spans,
+	// links, emphasis — agrees on what is escaped no matter where it looks. The
+	// render loop consumes escape pairs from this same map, so the two can never
+	// disagree about which backslashes are spent escaping.
 	function escapedPositions(text) {
 		const escaped = new Uint8Array(text.length);
 		for (let index = 0; index + 1 < text.length; index += 1) {
@@ -280,24 +280,25 @@
 	}
 
 	// Links are settled in one pass over the whole text, after code spans and
-	// before emphasis. A label ends at the first unescaped "](" outside every
-	// code span — code binds tighter, so a span may swallow a would-be closer —
-	// and the target at the balanced ")" that safeLinkTarget then judges. That
-	// first "](" serves every earlier bracket too, so a label can never hold a
-	// complete link of its own and the links come out disjoint, in text order.
+	// before emphasis. Every unescaped "[" outside a code span — code binds
+	// tighter, so a span may swallow a bracket — goes on a stack, and a "]("
+	// closes the nearest one still open, as CommonMark demands: in
+	// "[a [b](url)" the inner bracket takes the link and "[a " stays text. A
+	// "]" that forms no link — nothing follows it, no balanced ")", a target
+	// safeLinkTarget rejects — spends its opener as text, which is how the
+	// outer pair of "[a[b]c](url)" still reaches its "](". Each bracket is
+	// pushed once and popped at most once, so no position is ever rescanned.
 	function computeLinks(text, escaped, codeSpans) {
 		const links = [];
-		let bracket = text.indexOf("[");
-		if (bracket === -1) {
+		if (text.indexOf("[") === -1) {
 			return links;
 		}
 
 		// A link target ends at the first unescaped ")" that is not matching a "("
 		// opened inside it, so a parenthesised URL survives whole. That closer is
 		// the first ")" whose running paren balance equals the scan start's, so
-		// indexing the ")"s by balance turns each search into one binary lookup.
-		// The failed-scan memo cannot cover this marker: a failed balance scan
-		// says nothing about later scans, which start at depth zero afresh.
+		// indexing the ")"s by balance turns each search into one binary lookup
+		// where a walk would rescan the rest of the text once per "](".
 		const parenBalance = new Int32Array(text.length + 1);
 		const parenClosers = new Map();
 		for (let index = 0; index < text.length; index += 1) {
@@ -333,93 +334,54 @@
 			return low < closers.length ? closers[low] : -1;
 		}
 
-		// If no "](" exists from one point, none exists from any later point, so
-		// a failed label scan is worth remembering: without this a long run of
-		// "[" rescans the rest of the text once per bracket. The guarantee needs
-		// every scan to agree on what is escaped and what sits inside a code
-		// span, hence the precomputed maps rather than judging from wherever a
-		// scan happens to start — a later scan only ever examines a subset of
-		// the positions an earlier one did.
-		let labelScanFailedFrom = Infinity;
-
-		function findLabelEnd(start) {
-			if (start >= labelScanFailedFrom) {
-				return -1;
-			}
-			// First code span that could still cover positions at or after start.
-			let low = 0;
-			let high = codeSpans.length;
-			while (low < high) {
-				const middle = (low + high) >> 1;
-				if (codeSpans[middle].end <= start) {
-					low = middle + 1;
-				} else {
-					high = middle;
-				}
-			}
-			let spanIndex = low;
-			let index = start;
-			while (index + 1 < text.length) {
-				if (spanIndex < codeSpans.length && index >= codeSpans[spanIndex].start) {
-					index = codeSpans[spanIndex].end;
-					spanIndex += 1;
-					continue;
-				}
-				if (!escaped[index] && text[index] === "]" && text[index + 1] === "(") {
-					return index;
-				}
-				index += 1;
-			}
-			labelScanFailedFrom = start;
-			return -1;
-		}
-
-		// A "[" whose target turns out to be unsafe consumes nothing, and the scan
-		// that found that target succeeded, so the failed-scan memo has nothing to
-		// say about it. Every earlier "[" reaches this same "](" — there is no
-		// closer one, or the scan would have stopped there — and so is rejected
-		// over the same target. Without this a run of "[" before one bad link
-		// rescans the rest of the text once per bracket.
-		let rejectedLabelEnd = -1;
-
-		function tryLink(start) {
-			if (start + 1 <= rejectedLabelEnd) {
-				return null;
-			}
-			const labelEnd = findLabelEnd(start + 1);
-			if (labelEnd === -1) {
-				return null;
-			}
-			const targetEnd = findClosingParen(labelEnd + 2);
-			if (targetEnd === -1) {
-				return null;
-			}
-			const target = safeLinkTarget(text.slice(labelEnd + 2, targetEnd));
-			if (!target) {
-				rejectedLabelEnd = labelEnd;
-				return null;
-			}
-			return { labelEnd, targetEnd, target };
-		}
-
+		const openers = [];
 		let spanIndex = 0;
-		while (bracket !== -1) {
-			while (spanIndex < codeSpans.length && codeSpans[spanIndex].end <= bracket) {
+		let index = 0;
+		while (index < text.length) {
+			if (spanIndex < codeSpans.length && codeSpans[spanIndex].end <= index) {
 				spanIndex += 1;
-			}
-			if (spanIndex < codeSpans.length && bracket >= codeSpans[spanIndex].start) {
-				bracket = text.indexOf("[", codeSpans[spanIndex].end);
 				continue;
 			}
-			if (escaped[bracket]) {
-				bracket = text.indexOf("[", bracket + 1);
+			if (spanIndex < codeSpans.length && index >= codeSpans[spanIndex].start) {
+				index = codeSpans[spanIndex].end;
+				spanIndex += 1;
 				continue;
 			}
-			const link = tryLink(bracket);
-			if (!link) {
-				bracket = text.indexOf("[", bracket + 1);
+			const character = text[index];
+			if (escaped[index] || (character !== "[" && character !== "]")) {
+				index += 1;
 				continue;
 			}
+			if (character === "[") {
+				openers.push(index);
+				index += 1;
+				continue;
+			}
+			if (openers.length === 0) {
+				index += 1;
+				continue;
+			}
+			if (text[index + 1] !== "(") {
+				// A bare "]" and its "[" fail together, as text — CommonMark has
+				// reference links to try here; this renderer has only literal.
+				openers.pop();
+				index += 1;
+				continue;
+			}
+			const targetEnd = findClosingParen(index + 2);
+			const target = targetEnd === -1 ? null : safeLinkTarget(text.slice(index + 2, targetEnd));
+			if (!target) {
+				// The bracket pair is spent either way; the "(" and what follows
+				// were never consumed and are scanned as the text they are.
+				openers.pop();
+				index += 1;
+				continue;
+			}
+			const bracket = openers.pop();
+			// Brackets opened before a link die with it — nothing may reach
+			// across a link to a later "](" — so a label can never hold a
+			// complete link and the links come out disjoint, in text order.
+			openers.length = 0;
 			// The viewer loads no remote content, so an image is shown as the one
 			// thing it can honour: a link to the source, labelled by the alt text.
 			// A bang ahead of no safe link is literal like any other character.
@@ -427,11 +389,11 @@
 			links.push({
 				start: image ? bracket - 1 : bracket,
 				labelStart: bracket + 1,
-				labelEnd: link.labelEnd,
-				targetEnd: link.targetEnd,
-				target: link.target,
+				labelEnd: index,
+				targetEnd,
+				target,
 			});
-			bracket = text.indexOf("[", link.targetEnd + 1);
+			index = targetEnd + 1;
 		}
 		return links;
 	}
