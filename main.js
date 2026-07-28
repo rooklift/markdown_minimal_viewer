@@ -234,7 +234,7 @@ function buildMenu() {
 				{ role: "copy" },
 				{
 					label: "Paste",
-					accelerator: "CommandOrControl+Shift+V",
+					accelerator: "CommandOrControl+V",
 					click: () => pasteClipboard(),
 				},
 				{ role: "selectAll" },
@@ -317,6 +317,13 @@ function createWindow() {
 	mainWindow.on("closed", () => {
 		rendererReady = false;
 		mainWindow = null;
+	});
+	mainWindow.webContents.on("before-input-event", (event, input) => {
+		if (input.type.toLowerCase() === "keydown" && (input.control || input.meta)
+				&& !input.alt && !input.shift && input.key.toLowerCase() === "v") {
+			event.preventDefault();
+			pasteClipboard();
+		}
 	});
 }
 
