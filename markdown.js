@@ -718,7 +718,9 @@
 		const next = lines[index + 1] || "";
 		// Only an item with content can interrupt a paragraph — CommonMark keeps
 		// a lone marker mid-paragraph as prose, so a line of "foo\n*\nbar" stays
-		// one paragraph rather than splitting around an empty list.
+		// one paragraph rather than splitting around an empty list. An ordered
+		// marker interrupts only when numbered 1, so a sentence wrapping onto
+		// "14. The number of doors" keeps reading as prose.
 		const item = listMatch(line);
 		// Indented code is deliberately absent: an indented line after text is a
 		// hanging indent continuing the paragraph, not the start of a code block.
@@ -726,7 +728,7 @@
 			|| /^ {0,3}(```+|~~~+)/.test(line)
 			|| /^ {0,3}>\s?/.test(line)
 			|| /^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$/.test(line)
-			|| (item !== null && item.content !== "")
+			|| (item !== null && item.content !== "" && (!item.ordered || item.start === 1))
 			|| (/^ {0,3}(=+|-+)\s*$/.test(next) && line.trim() !== "");
 	}
 

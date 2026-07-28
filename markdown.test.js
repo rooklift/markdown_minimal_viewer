@@ -14,6 +14,25 @@ test("renders ordered, unordered, and nested lists", () => {
 	assert.equal(html, "<ul><li>one</li><li>two<ol><li>nested</li><li>again</li></ol></li></ul>");
 });
 
+test("only a marker numbered 1 interrupts a paragraph", () => {
+	// A sentence wrapping onto a number stays prose — CommonMark lets an
+	// ordered marker interrupt a paragraph only when it is numbered 1.
+	assert.equal(
+		renderMarkdown("The number of windows is\n14. The number of doors is six."),
+		"<p>The number of windows is 14. The number of doors is six.</p>",
+	);
+
+	// "1." still interrupts, and after a blank line any number starts a list.
+	assert.equal(
+		renderMarkdown("A sentence\n1. one\n2. two"),
+		"<p>A sentence</p>\n<ol><li>one</li><li>two</li></ol>",
+	);
+	assert.equal(
+		renderMarkdown("A sentence\n\n14. one"),
+		'<p>A sentence</p>\n<ol start="14"><li>one</li></ol>',
+	);
+});
+
 test("item content after a nested list keeps its source order", () => {
 	const html = renderMarkdown("- one\n- two\n  1. nested\n  after");
 	assert.equal(html, "<ul><li>one</li><li>two<ol><li>nested</li></ol>after</li></ul>");
