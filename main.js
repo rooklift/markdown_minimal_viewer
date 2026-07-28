@@ -131,7 +131,6 @@ function buildMenu() {
 		{
 			label: "View",
 			submenu: [
-				{ role: "reload" },
 				{ role: "toggleDevTools" },
 				{ type: "separator" },
 				{ role: "resetZoom" },
