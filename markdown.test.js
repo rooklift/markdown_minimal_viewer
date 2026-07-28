@@ -322,6 +322,28 @@ test("code blocks inside list items keep their inner indentation", () => {
 	);
 });
 
+test("tab-indented lines are code, not markup", () => {
+	assert.equal(
+		renderMarkdown("\t*text* [link](https://example.com)"),
+		"<pre><code>*text* [link](https://example.com)</code></pre>",
+	);
+});
+
+test("whitespace-only lines continue an indented code block", () => {
+	// A line of spaces between two indented chunks is blank, not a block
+	// boundary — one code block, with the gap inside it.
+	assert.equal(
+		renderMarkdown("    a\n   \n    b"),
+		"<pre><code>a\n\nb</code></pre>",
+	);
+
+	// Blank lines after the last chunk belong to what follows, not the code.
+	assert.equal(
+		renderMarkdown("    code\n\nafter"),
+		"<pre><code>code</code></pre>\n<p>after</p>",
+	);
+});
+
 test("indented lines continue a paragraph instead of starting code", () => {
 	assert.equal(
 		renderMarkdown("A sentence that\n    continues indented."),

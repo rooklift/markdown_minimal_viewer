@@ -920,11 +920,18 @@
 				continue;
 			}
 
-			if (/^ {4}/.test(line)) {
+			// Indentation is measured in columns, tabs counting four as everywhere
+			// else, so a tab-indented line is code and never parsed as markup. A
+			// blank line — whitespace-only included — continues the block, but
+			// trailing blanks belong to what follows, not to the code.
+			if (indentWidth(line) >= 4) {
 				const codeLines = [];
-				while (index < lines.length && (/^ {4}/.test(lines[index]) || lines[index] === "")) {
-					codeLines.push(lines[index].replace(/^ {4}/, ""));
+				while (index < lines.length && (indentWidth(lines[index]) >= 4 || lines[index].trim() === "")) {
+					codeLines.push(lines[index].trim() === "" ? "" : dedent(lines[index], 4));
 					index += 1;
+				}
+				while (codeLines[codeLines.length - 1] === "") {
+					codeLines.pop();
 				}
 				output.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
 				continue;
