@@ -449,15 +449,102 @@
 		return pairs;
 	}
 
+	// The named references prose actually uses. CommonMark demands HTML's full
+	// list of some two thousand names, which is more table than parser; a name
+	// beyond this set stays literal text, exactly as CommonMark itself treats
+	// a name it does not know. Values invisible on screen are written as
+	// escapes; every entry, visible or not, is pinned by a codepoint test.
+	const NAMED_ENTITY = new Map(Object.entries({
+		// Markup and quoting.
+		amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+		// Latin-1 signs and fractions.
+		nbsp: "\u00a0", iexcl: "¡", cent: "¢", pound: "£", curren: "¤", yen: "¥",
+		brvbar: "¦", sect: "§", uml: "¨", copy: "©", ordf: "ª", laquo: "«",
+		not: "¬", shy: "\u00ad", reg: "®", macr: "¯", deg: "°", plusmn: "±",
+		sup2: "²", sup3: "³", acute: "´", micro: "µ", para: "¶", middot: "·",
+		cedil: "¸", sup1: "¹", ordm: "º", raquo: "»", frac14: "¼", frac12: "½",
+		frac34: "¾", iquest: "¿", times: "×", divide: "÷",
+		// Latin-1 letters.
+		Agrave: "À", Aacute: "Á", Acirc: "Â", Atilde: "Ã", Auml: "Ä", Aring: "Å",
+		AElig: "Æ", Ccedil: "Ç", Egrave: "È", Eacute: "É", Ecirc: "Ê", Euml: "Ë",
+		Igrave: "Ì", Iacute: "Í", Icirc: "Î", Iuml: "Ï", ETH: "Ð", Ntilde: "Ñ",
+		Ograve: "Ò", Oacute: "Ó", Ocirc: "Ô", Otilde: "Õ", Ouml: "Ö", Oslash: "Ø",
+		Ugrave: "Ù", Uacute: "Ú", Ucirc: "Û", Uuml: "Ü", Yacute: "Ý", THORN: "Þ",
+		szlig: "ß", agrave: "à", aacute: "á", acirc: "â", atilde: "ã", auml: "ä",
+		aring: "å", aelig: "æ", ccedil: "ç", egrave: "è", eacute: "é", ecirc: "ê",
+		euml: "ë", igrave: "ì", iacute: "í", icirc: "î", iuml: "ï", eth: "ð",
+		ntilde: "ñ", ograve: "ò", oacute: "ó", ocirc: "ô", otilde: "õ", ouml: "ö",
+		oslash: "ø", ugrave: "ù", uacute: "ú", ucirc: "û", uuml: "ü", yacute: "ý",
+		thorn: "þ", yuml: "ÿ", OElig: "Œ", oelig: "œ",
+		// Spaces, dashes, and typographer's punctuation.
+		ensp: "\u2002", emsp: "\u2003", thinsp: "\u2009", ndash: "–", mdash: "—",
+		lsquo: "‘", rsquo: "’", sbquo: "‚", ldquo: "“",
+		rdquo: "”", bdquo: "„", dagger: "†", Dagger: "‡", bull: "•",
+		hellip: "…", permil: "‰", prime: "′", Prime: "″", lsaquo: "‹",
+		rsaquo: "›", oline: "‾", frasl: "⁄", euro: "€", trade: "™",
+		// Arrows.
+		larr: "←", uarr: "↑", rarr: "→", darr: "↓", harr: "↔", crarr: "↵",
+		lArr: "⇐", uArr: "⇑", rArr: "⇒", dArr: "⇓", hArr: "⇔",
+		// Mathematics.
+		forall: "∀", part: "∂", exist: "∃", empty: "∅", nabla: "∇", isin: "∈",
+		notin: "∉", ni: "∋", prod: "∏", sum: "∑", minus: "−",
+		lowast: "∗", radic: "√", prop: "∝", infin: "∞", ang: "∠",
+		and: "∧", or: "∨", cap: "∩", cup: "∪", int: "∫", there4: "∴",
+		sim: "∼", cong: "≅", asymp: "≈", ne: "≠", equiv: "≡", le: "≤",
+		ge: "≥", sub: "⊂", sup: "⊃", nsub: "⊄", sube: "⊆", supe: "⊇",
+		oplus: "⊕", otimes: "⊗", perp: "⊥", sdot: "⋅", loz: "◊",
+		// Greek.
+		Alpha: "Α", Beta: "Β", Gamma: "Γ", Delta: "Δ",
+		Epsilon: "Ε", Zeta: "Ζ", Eta: "Η", Theta: "Θ",
+		Iota: "Ι", Kappa: "Κ", Lambda: "Λ", Mu: "Μ",
+		Nu: "Ν", Xi: "Ξ", Omicron: "Ο", Pi: "Π",
+		Rho: "Ρ", Sigma: "Σ", Tau: "Τ", Upsilon: "Υ",
+		Phi: "Φ", Chi: "Χ", Psi: "Ψ", Omega: "Ω",
+		alpha: "α", beta: "β", gamma: "γ", delta: "δ",
+		epsilon: "ε", zeta: "ζ", eta: "η", theta: "θ",
+		iota: "ι", kappa: "κ", lambda: "λ", mu: "μ",
+		nu: "ν", xi: "ξ", omicron: "ο", pi: "π",
+		rho: "ρ", sigmaf: "ς", sigma: "σ", tau: "τ",
+		upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ",
+		omega: "ω",
+		// Suits.
+		spades: "♠", clubs: "♣", hearts: "♥", diams: "♦",
+	}));
+
+	// A numeric reference is any code point, with U+FFFD standing in for zero,
+	// surrogates, and points beyond Unicode, as CommonMark requires; a named
+	// reference is looked up, and an unknown name decodes to null so the
+	// caller can leave it as the text it already was. References decode only
+	// in displayed text, never in a link's destination: the target is used
+	// exactly as written, so the scheme the renderer and the main process
+	// check is the scheme the shell receives — decoding there would let
+	// &colon; smuggle a scheme past both.
+	function decodeCharacterReference(body) {
+		if (body[0] !== "#") {
+			return NAMED_ENTITY.get(body) ?? null;
+		}
+		const code = body[1] === "x" || body[1] === "X"
+			? Number.parseInt(body.slice(2), 16)
+			: Number.parseInt(body.slice(1), 10);
+		if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+			return "\ufffd";
+		}
+		return String.fromCodePoint(code);
+	}
+
 	// Text between constructs, rendered in one regex pass: an escape pair
 	// collapses to its character, a backslash or a run of two or more spaces
 	// before a newline is the hard break it means, a lone newline is a space,
-	// and what remains is escaped in slices rather than character by character.
-	// The escape alternative consumes pairs left to right exactly as
-	// escapedPositions judges them, so the two cannot disagree — which is also
-	// what keeps an escaped backslash at a line's end literal, with a soft
-	// break after it.
-	const TEXT_TOKEN = new RegExp(`\\\\(${ESCAPABLE_CHARACTER.source})|\\\\\\n|( +)\\n|\\n`, "g");
+	// a character reference becomes the character it names, and what remains
+	// is escaped in slices rather than character by character. The escape
+	// alternative consumes pairs left to right exactly as escapedPositions
+	// judges them, so the two cannot disagree — which is also what keeps an
+	// escaped backslash at a line's end literal, and \&copy; six characters
+	// of text.
+	const TEXT_TOKEN = new RegExp(
+		`\\\\(${ESCAPABLE_CHARACTER.source})|\\\\\\n|( +)\\n|\\n|&(#\\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});`,
+		"g",
+	);
 
 	function renderTextRun(raw) {
 		let html = "";
@@ -472,6 +559,11 @@
 				html += match[2].length >= 2 ? "<br>" : `${match[2]} `;
 			} else if (match[0] === "\\\n") {
 				html += "<br>";
+			} else if (match[3] !== undefined) {
+				// The decoded character is escaped like any other text, so a
+				// reference can spell markup but never emit it.
+				const decoded = decodeCharacterReference(match[3]);
+				html += escapeHtml(decoded ?? match[0]);
 			} else {
 				html += " ";
 			}

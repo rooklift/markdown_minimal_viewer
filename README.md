@@ -12,6 +12,7 @@ It supports:
 - ordered, unordered, and nested lists
 - web and email links
 - images, shown as links to the image rather than loaded
+- character references, numeric (`&#169;`) and common named ones (`&copy;`)
 
 Raw HTML is displayed as text rather than executed. Only `http`, `https`, and `mailto` links are live, and they open in your browser or mail client rather than in the viewer. Every other target — a relative path, an absolute one, another scheme, a `#fragment` — is shown as plain text, so a document has no way to name a local file, let alone make the viewer read one or the system open one.
 
@@ -21,7 +22,7 @@ The dialect is a subset of CommonMark, and where the two differ it is by choice:
 
 - No extensions: tables, task lists, strikethrough, and footnotes are plain text.
 - Links are inline `[text](url)` only — no reference links (`[text][label]`), no autolinks (`<https://…>`), and bare URLs stay plain text.
-- No HTML entities: `&copy;` is six characters of text, not a © sign.
+- Character references decode only partly: numeric forms (`&#169;`, `&#xA9;`) and about two hundred common names (`&copy;`, `&mdash;`, `&alpha;`…) become their characters; the rest of HTML's two-thousand-name list stays literal text. A reference inside a link's destination is never decoded, so the address that is checked is the address that opens.
 - No lazy continuation: a line that belongs to a blockquote or a list item must carry its `>` marker or its indentation. An unmarked line ends the block instead of continuing its last paragraph.
 - List nesting is judged from the marker's indentation alone: any item indented deeper than its parent's marker nests under it. CommonMark instead measures against the parent's content column and would sometimes start a separate list.
 

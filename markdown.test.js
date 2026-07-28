@@ -460,3 +460,97 @@ test("renders blockquotes, rules, and hard breaks", () => {
 	assert.equal(renderMarkdown("first\\\\\nsecond"), "<p>first\\ second</p>");
 	assert.equal(renderMarkdown("first\\"), "<p>first\\</p>");
 });
+
+test("decodes numeric and common named character references", () => {
+	assert.equal(renderMarkdown("&copy; &#169; &#xA9; &Omega;"), "<p>© © © Ω</p>");
+
+	// A decoded character is escaped like any other text, so a reference can
+	// spell markup but never emit it — and &amp;copy; round-trips as text.
+	assert.equal(renderMarkdown("&lt;b&gt; &amp;copy;"), "<p>&lt;b&gt; &amp;copy;</p>");
+
+	// An unknown name, a bare ampersand, an unterminated reference, and an
+	// escaped ampersand all stay the text they are.
+	assert.equal(renderMarkdown("&bogus; AT&T &copy"), "<p>&amp;bogus; AT&amp;T &amp;copy</p>");
+	assert.equal(renderMarkdown("\\&copy;"), "<p>&amp;copy;</p>");
+
+	// Zero, surrogates, and points beyond Unicode become the replacement
+	// character, as CommonMark requires.
+	assert.equal(renderMarkdown("&#0; &#xD800; &#x110000;"), "<p>� � �</p>");
+
+	// Code stays raw, and a link's destination is never decoded: the target
+	// checked is the target opened.
+	assert.equal(renderMarkdown("`&copy;`"), "<p><code>&amp;copy;</code></p>");
+	assert.equal(
+		renderMarkdown("[a](https://x.test/?q=&amp;b)"),
+		'<p><a href="https://x.test/?q=&amp;amp;b" data-href="https://x.test/?q=&amp;amp;b" rel="noreferrer">a</a></p>',
+	);
+});
+
+// Many entity values are glyphs a reader cannot tell from their neighbours —
+// Greek capitals from Latin ones, minus signs from hyphens, no-break spaces
+// from spaces — so the whole table is pinned to codepoints stated numerically,
+// where a wrong character cannot hide.
+test("every named reference decodes to the codepoint the name means", () => {
+	const expected = {
+		amp: 38, lt: 60, gt: 62, quot: 34, apos: 39,
+		nbsp: 160, iexcl: 161, cent: 162, pound: 163, curren: 164, yen: 165,
+		brvbar: 166, sect: 167, uml: 168, copy: 169, ordf: 170, laquo: 171,
+		not: 172, shy: 173, reg: 174, macr: 175, deg: 176, plusmn: 177,
+		sup2: 178, sup3: 179, acute: 180, micro: 181, para: 182, middot: 183,
+		cedil: 184, sup1: 185, ordm: 186, raquo: 187, frac14: 188, frac12: 189,
+		frac34: 190, iquest: 191, times: 215, divide: 247,
+		Agrave: 192, Aacute: 193, Acirc: 194, Atilde: 195, Auml: 196, Aring: 197,
+		AElig: 198, Ccedil: 199, Egrave: 200, Eacute: 201, Ecirc: 202, Euml: 203,
+		Igrave: 204, Iacute: 205, Icirc: 206, Iuml: 207, ETH: 208, Ntilde: 209,
+		Ograve: 210, Oacute: 211, Ocirc: 212, Otilde: 213, Ouml: 214, Oslash: 216,
+		Ugrave: 217, Uacute: 218, Ucirc: 219, Uuml: 220, Yacute: 221, THORN: 222,
+		szlig: 223, agrave: 224, aacute: 225, acirc: 226, atilde: 227, auml: 228,
+		aring: 229, aelig: 230, ccedil: 231, egrave: 232, eacute: 233, ecirc: 234,
+		euml: 235, igrave: 236, iacute: 237, icirc: 238, iuml: 239, eth: 240,
+		ntilde: 241, ograve: 242, oacute: 243, ocirc: 244, otilde: 245, ouml: 246,
+		oslash: 248, ugrave: 249, uacute: 250, ucirc: 251, uuml: 252, yacute: 253,
+		thorn: 254, yuml: 255, OElig: 0x152, oelig: 0x153,
+		ensp: 0x2002, emsp: 0x2003, thinsp: 0x2009, ndash: 0x2013, mdash: 0x2014,
+		lsquo: 0x2018, rsquo: 0x2019, sbquo: 0x201a, ldquo: 0x201c, rdquo: 0x201d,
+		bdquo: 0x201e, dagger: 0x2020, Dagger: 0x2021, bull: 0x2022, hellip: 0x2026,
+		permil: 0x2030, prime: 0x2032, Prime: 0x2033, lsaquo: 0x2039, rsaquo: 0x203a,
+		oline: 0x203e, frasl: 0x2044, euro: 0x20ac, trade: 0x2122,
+		larr: 0x2190, uarr: 0x2191, rarr: 0x2192, darr: 0x2193, harr: 0x2194,
+		crarr: 0x21b5, lArr: 0x21d0, uArr: 0x21d1, rArr: 0x21d2, dArr: 0x21d3,
+		hArr: 0x21d4,
+		forall: 0x2200, part: 0x2202, exist: 0x2203, empty: 0x2205, nabla: 0x2207,
+		isin: 0x2208, notin: 0x2209, ni: 0x220b, prod: 0x220f, sum: 0x2211,
+		minus: 0x2212, lowast: 0x2217, radic: 0x221a, prop: 0x221d, infin: 0x221e,
+		ang: 0x2220, and: 0x2227, or: 0x2228, cap: 0x2229, cup: 0x222a,
+		int: 0x222b, there4: 0x2234, sim: 0x223c, cong: 0x2245, asymp: 0x2248,
+		ne: 0x2260, equiv: 0x2261, le: 0x2264, ge: 0x2265, sub: 0x2282,
+		sup: 0x2283, nsub: 0x2284, sube: 0x2286, supe: 0x2287, oplus: 0x2295,
+		otimes: 0x2297, perp: 0x22a5, sdot: 0x22c5, loz: 0x25ca,
+		Alpha: 0x391, Beta: 0x392, Gamma: 0x393, Delta: 0x394, Epsilon: 0x395,
+		Zeta: 0x396, Eta: 0x397, Theta: 0x398, Iota: 0x399, Kappa: 0x39a,
+		Lambda: 0x39b, Mu: 0x39c, Nu: 0x39d, Xi: 0x39e, Omicron: 0x39f,
+		Pi: 0x3a0, Rho: 0x3a1, Sigma: 0x3a3, Tau: 0x3a4, Upsilon: 0x3a5,
+		Phi: 0x3a6, Chi: 0x3a7, Psi: 0x3a8, Omega: 0x3a9,
+		alpha: 0x3b1, beta: 0x3b2, gamma: 0x3b3, delta: 0x3b4, epsilon: 0x3b5,
+		zeta: 0x3b6, eta: 0x3b7, theta: 0x3b8, iota: 0x3b9, kappa: 0x3ba,
+		lambda: 0x3bb, mu: 0x3bc, nu: 0x3bd, xi: 0x3be, omicron: 0x3bf,
+		pi: 0x3c0, rho: 0x3c1, sigmaf: 0x3c2, sigma: 0x3c3, tau: 0x3c4,
+		upsilon: 0x3c5, phi: 0x3c6, chi: 0x3c7, psi: 0x3c8, omega: 0x3c9,
+		spades: 0x2660, clubs: 0x2663, hearts: 0x2665, diams: 0x2666,
+	};
+
+	const escapeHtml = (value) => value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#39;");
+
+	for (const [name, code] of Object.entries(expected)) {
+		assert.equal(
+			renderMarkdown(`&${name};`),
+			`<p>${escapeHtml(String.fromCodePoint(code))}</p>`,
+			`&${name};`,
+		);
+	}
+});
