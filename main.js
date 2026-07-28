@@ -286,16 +286,6 @@ app.on("window-all-closed", () => {
 	app.quit();
 });
 
-ipcMain.handle("viewer:get-initial-document", async () => {
-	if (!queuedOpenRequest) {
-		return null;
-	}
-
-	const request = queuedOpenRequest;
-	queuedOpenRequest = null;
-	return readOpenRequest(request);
-});
-
 // A drop is the one case where the renderer names a file, and the main process
 // cannot tell a genuine drop from any other call on this channel. Holding the
 // path to the file types the viewer is for — and, in readDocument, to this

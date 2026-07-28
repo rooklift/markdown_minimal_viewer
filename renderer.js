@@ -62,6 +62,3 @@ documentView.addEventListener("click", (event) => {
 });
 
 window.viewer.onDocumentOpened(displayDocument);
-window.viewer.getInitialDocument().then(displayDocument).catch((error) => {
-	fileName.textContent = `Could not open file: ${error.message}`;
-});

@@ -3,7 +3,6 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("viewer", {
-	getInitialDocument: () => ipcRenderer.invoke("viewer:get-initial-document"),
 	onDocumentOpened: (callback) => {
 		ipcRenderer.on("viewer:document-opened", (_event, document) => callback(document));
 	},
