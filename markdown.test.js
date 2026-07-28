@@ -260,8 +260,12 @@ test("code spans bind tighter than emphasis", () => {
 });
 
 test("caps nesting depth instead of exhausting the stack", () => {
-	const deepLists = Array.from({ length: 20000 }, (_, i) => " ".repeat(i * 2) + "- x").join("\n");
-	assert.doesNotThrow(() => renderMarkdown(deepLists));
+	// This crosses the 64-level cap comfortably while keeping the fixture small
+	// enough for routine test runs. The outer list plus 64 nested lists render;
+	// markers beyond the cap stay text instead of opening more structure.
+	const deepLists = Array.from({ length: 256 }, (_, i) => " ".repeat(i * 2) + "- x").join("\n");
+	const renderedLists = renderMarkdown(deepLists);
+	assert.equal((renderedLists.match(/<ul>/g) || []).length, 65);
 	assert.doesNotThrow(() => renderMarkdown(">".repeat(200000) + " x"));
 
 	// Nesting within the limit is still rendered as real structure.
