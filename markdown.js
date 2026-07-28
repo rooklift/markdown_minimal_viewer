@@ -450,12 +450,14 @@
 	}
 
 	// Text between constructs, rendered in one regex pass: an escape pair
-	// collapses to its character, a run of two or more spaces before a newline
-	// is the hard break it means, a lone newline is a space, and what remains
-	// is escaped in slices rather than character by character. The escape
-	// alternative consumes pairs left to right exactly as escapedPositions
-	// judges them, so the two cannot disagree.
-	const TEXT_TOKEN = new RegExp(`\\\\(${ESCAPABLE_CHARACTER.source})|( +)\\n|\\n`, "g");
+	// collapses to its character, a backslash or a run of two or more spaces
+	// before a newline is the hard break it means, a lone newline is a space,
+	// and what remains is escaped in slices rather than character by character.
+	// The escape alternative consumes pairs left to right exactly as
+	// escapedPositions judges them, so the two cannot disagree — which is also
+	// what keeps an escaped backslash at a line's end literal, with a soft
+	// break after it.
+	const TEXT_TOKEN = new RegExp(`\\\\(${ESCAPABLE_CHARACTER.source})|\\\\\\n|( +)\\n|\\n`, "g");
 
 	function renderTextRun(raw) {
 		let html = "";
@@ -468,6 +470,8 @@
 				html += escapeHtml(match[1]);
 			} else if (match[2] !== undefined) {
 				html += match[2].length >= 2 ? "<br>" : `${match[2]} `;
+			} else if (match[0] === "\\\n") {
+				html += "<br>";
 			} else {
 				html += " ";
 			}

@@ -444,4 +444,11 @@ test("renders blockquotes, rules, and hard breaks", () => {
 	// single trailing space is not a break at all.
 	assert.equal(renderMarkdown("first    \nsecond"), "<p>first<br>second</p>");
 	assert.equal(renderMarkdown("first \nsecond"), "<p>first  second</p>");
+
+	// A backslash before the newline is the other hard break, consumed with
+	// it; an escaped backslash there is literal and the break stays soft, and
+	// a backslash at the very end of the text has no newline to break.
+	assert.equal(renderMarkdown("first\\\nsecond"), "<p>first<br>second</p>");
+	assert.equal(renderMarkdown("first\\\\\nsecond"), "<p>first\\ second</p>");
+	assert.equal(renderMarkdown("first\\"), "<p>first\\</p>");
 });
