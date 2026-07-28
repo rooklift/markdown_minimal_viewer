@@ -17,7 +17,6 @@ function displayDocument(markdownDocument) {
 }
 
 let dragDepth = 0;
-let dropCount = 0;
 
 document.addEventListener("dragenter", (event) => {
 	event.preventDefault();
@@ -38,27 +37,17 @@ document.addEventListener("dragleave", (event) => {
 	}
 });
 
-document.addEventListener("drop", async (event) => {
+// The path is handed to the main process, which opens the file through the
+// same route as File → Open: the document comes back over document-opened,
+// and errors surface in main's dialog. Nothing here awaits the outcome.
+document.addEventListener("drop", (event) => {
 	event.preventDefault();
 	dragDepth = 0;
 	document.body.classList.remove("dragging");
 
 	const [file] = event.dataTransfer.files;
-	if (!file) {
-		return;
-	}
-
-	const id = ++dropCount;
-
-	try {
-		const doc = await window.viewer.openDroppedFile(file);
-		if (id === dropCount) {
-			displayDocument(doc);
-		}
-	} catch (error) {
-		if (id === dropCount) {
-			fileName.textContent = `Could not open file: ${error.message}`;
-		}
+	if (file) {
+		window.viewer.openDroppedFile(file);
 	}
 });
 

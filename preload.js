@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld("viewer", {
 	},
 	openDroppedFile: (file) => {
 		const filePath = webUtils.getPathForFile(file);
-		return ipcRenderer.invoke("viewer:open-dropped-file", filePath);
+		ipcRenderer.send("viewer:open-dropped-file", filePath);
 	},
 	openLink: (target) => ipcRenderer.invoke("viewer:open-link", target),
 });

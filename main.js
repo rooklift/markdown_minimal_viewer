@@ -271,14 +271,20 @@ ipcMain.handle("viewer:get-initial-document", async () => {
 // path to the file types the viewer is for — and, in readDocument, to this
 // machine — means even a compromised renderer can read nothing more sensitive
 // than the documents the app already shows, and can name no host of its own.
-ipcMain.handle("viewer:open-dropped-file", (_event, filePath) => {
+ipcMain.on("viewer:open-dropped-file", async (_event, filePath) => {
 	if (typeof filePath !== "string" || filePath.length === 0) {
-		throw new Error("The dropped item does not have a valid file path.");
+		return;
 	}
 	if (!OPENABLE_EXTENSION.test(filePath)) {
-		throw new Error("Only Markdown and plain text files can be dropped here.");
+		await dialog.showMessageBox(mainWindow, {
+			type: "error",
+			title: "Could not open file",
+			message: "Could not open that Markdown file.",
+			detail: "Only Markdown and plain text files can be dropped here.",
+		});
+		return;
 	}
-	return readOpenRequest(beginOpenRequest(filePath));
+	await openDocument(filePath);
 });
 
 // The renderer only marks up http(s) and mailto targets, but it is the untrusted
