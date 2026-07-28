@@ -635,7 +635,7 @@
 			|| /^ {0,3}>\s?/.test(line)
 			|| /^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$/.test(line)
 			|| (item !== null && item.content !== "")
-			|| (/^\s*(=+|-+)\s*$/.test(next) && line.trim() !== "");
+			|| (/^ {0,3}(=+|-+)\s*$/.test(next) && line.trim() !== "");
 	}
 
 	// Paragraph text is escaped, so an interior </p> can only be a real block
@@ -848,7 +848,9 @@
 			// line above a thematic break — a one-item list, a quote, another rule —
 			// since every one of those can be followed by `---`. This is the order
 			// `isBlockStart` already uses to decide where a paragraph stops.
-			if (index + 1 < lines.length && /^\s*(=+|-+)\s*$/.test(lines[index + 1]) && line.trim()) {
+			// Like every block marker, an underline may be indented at most three
+			// spaces; deeper it is no underline, just the paragraph continuing.
+			if (index + 1 < lines.length && /^ {0,3}(=+|-+)\s*$/.test(lines[index + 1]) && line.trim()) {
 				const level = lines[index + 1].trim()[0] === "=" ? 1 : 2;
 				output.push(`<h${level}>${renderInline(line.trim())}</h${level}>`);
 				index += 2;

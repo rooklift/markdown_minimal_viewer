@@ -432,6 +432,14 @@ test("an underline only makes a heading of what would have been a paragraph", ()
 	// A list of more than one item never regressed: the underline is not the line
 	// directly below the first item, so the list branch got its turn regardless.
 	assert.equal(renderMarkdown("- a\n- b\n---"), "<ul><li>a</li><li>b</li></ul>\n<hr>");
+
+	// An underline indented four columns is no underline at all: after text it
+	// is the paragraph continuing, and after a gap it is indented code. Three
+	// columns is still within every block marker's allowance.
+	assert.equal(renderMarkdown("Title\n    ---"), "<p>Title ---</p>");
+	assert.equal(renderMarkdown("Title\n    ==="), "<p>Title ===</p>");
+	assert.equal(renderMarkdown("Title\n\n    ---"), "<p>Title</p>\n<pre><code>---</code></pre>");
+	assert.equal(renderMarkdown("Title\n   ---"), "<h2>Title</h2>");
 });
 
 test("renders blockquotes, rules, and hard breaks", () => {
