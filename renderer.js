@@ -17,6 +17,7 @@ function displayDocument(markdownDocument) {
 }
 
 let dragDepth = 0;
+let dropCount = 0;
 
 document.addEventListener("dragenter", (event) => {
 	event.preventDefault();
@@ -47,10 +48,17 @@ document.addEventListener("drop", async (event) => {
 		return;
 	}
 
+	const id = ++dropCount;
+
 	try {
-		displayDocument(await window.viewer.openDroppedFile(file));
+		const doc = await window.viewer.openDroppedFile(file);
+		if (id === dropCount) {
+			displayDocument(doc);
+		}
 	} catch (error) {
-		fileName.textContent = `Could not open file: ${error.message}`;
+		if (id === dropCount) {
+			fileName.textContent = `Could not open file: ${error.message}`;
+		}
 	}
 });
 

@@ -13,7 +13,19 @@ const LINK_SCHEME = /^(?:https?|mailto):/i;
 const CONTROL_CHARACTER = new RegExp("[\\u0000-\\u001f\\u007f]");
 
 let mainWindow;
-let queuedFile = null;
+let queuedOpenRequest = null;
+let latestOpenRequestId = 0;
+
+function beginOpenRequest(filePath) {
+	return {
+		filePath,
+		id: ++latestOpenRequestId,
+	};
+}
+
+function isLatestOpenRequest(request) {
+	return request.id === latestOpenRequestId;
+}
 
 function findCommandLineFile() {
 	const args = process.argv.slice(app.isPackaged ? 1 : 2);
@@ -48,15 +60,30 @@ async function readDocument(filePath) {
 	// a "#" would stop the parser recognising the first heading.
 	const content = (await fs.readFile(absolutePath, "utf8")).replace(/^\uFEFF/, "");
 
-	if (mainWindow && !mainWindow.isDestroyed()) {
-		mainWindow.setTitle(`${path.basename(absolutePath)} — Minimal Markdown Viewer`);
-	}
-
 	return {
 		content,
 		name: path.basename(absolutePath),
 		path: absolutePath,
 	};
+}
+
+async function readOpenRequest(request) {
+	if (!isLatestOpenRequest(request)) {
+		return null;
+	}
+
+	try {
+		const document = await readDocument(request.filePath);
+		return isLatestOpenRequest(request) ? document : null;
+	} catch (error) {
+		// A failure from an older request is no more relevant than its successful
+		// result. Suppress it instead of replacing the current file name with an
+		// error or opening a dialog over the document chosen afterwards.
+		if (!isLatestOpenRequest(request)) {
+			return null;
+		}
+		throw error;
+	}
 }
 
 async function showOpenDialog() {
@@ -73,7 +100,7 @@ async function showOpenDialog() {
 		return null;
 	}
 
-	return readDocument(result.filePaths[0]);
+	return result.filePaths[0];
 }
 
 function sendDocument(document) {
@@ -83,9 +110,16 @@ function sendDocument(document) {
 }
 
 async function openDocument(filePath) {
+	const request = beginOpenRequest(filePath);
 	try {
-		sendDocument(await readDocument(filePath));
+		const document = await readOpenRequest(request);
+		if (document) {
+			sendDocument(document);
+		}
 	} catch (error) {
+		if (!isLatestOpenRequest(request)) {
+			return;
+		}
 		await dialog.showMessageBox(mainWindow, {
 			type: "error",
 			title: "Could not open file",
@@ -105,9 +139,9 @@ function buildMenu() {
 					accelerator: "CommandOrControl+O",
 					click: async () => {
 						try {
-							const document = await showOpenDialog();
-							if (document) {
-								sendDocument(document);
+							const filePath = await showOpenDialog();
+							if (filePath) {
+								await openDocument(filePath);
 							}
 						} catch (error) {
 							await dialog.showErrorBox("Could not open file", error.message);
@@ -200,14 +234,19 @@ app.on("open-file", (event, filePath) => {
 	if (mainWindow) {
 		openDocument(filePath);
 	} else {
-		queuedFile = filePath;
+		queuedOpenRequest = beginOpenRequest(filePath);
 	}
 });
 
 app.whenReady().then(() => {
+	if (!queuedOpenRequest) {
+		const commandLineFile = findCommandLineFile();
+		if (commandLineFile) {
+			queuedOpenRequest = beginOpenRequest(commandLineFile);
+		}
+	}
 	createWindow();
 	Menu.setApplicationMenu(buildMenu());
-	queuedFile ||= findCommandLineFile();
 });
 
 // Quitting on every platform — contrary to the macOS convention — means the app
@@ -218,13 +257,13 @@ app.on("window-all-closed", () => {
 });
 
 ipcMain.handle("viewer:get-initial-document", async () => {
-	if (!queuedFile) {
+	if (!queuedOpenRequest) {
 		return null;
 	}
 
-	const filePath = queuedFile;
-	queuedFile = null;
-	return readDocument(filePath);
+	const request = queuedOpenRequest;
+	queuedOpenRequest = null;
+	return readOpenRequest(request);
 });
 
 // A drop is the one case where the renderer names a file, and the main process
@@ -239,7 +278,7 @@ ipcMain.handle("viewer:open-dropped-file", (_event, filePath) => {
 	if (!OPENABLE_EXTENSION.test(filePath)) {
 		throw new Error("Only Markdown and plain text files can be dropped here.");
 	}
-	return readDocument(filePath);
+	return readOpenRequest(beginOpenRequest(filePath));
 });
 
 // The renderer only marks up http(s) and mailto targets, but it is the untrusted
