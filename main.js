@@ -319,10 +319,13 @@ function createWindow() {
 		mainWindow = null;
 	});
 	mainWindow.webContents.on("before-input-event", (event, input) => {
-		if (input.type.toLowerCase() === "keydown" && (input.control || input.meta)
-				&& !input.alt && !input.shift && input.key.toLowerCase() === "v") {
-			event.preventDefault();
-			pasteClipboard();
+		if (input.type.toLowerCase() === "keydown") {
+			if ((input.control || input.meta) && input.key.toLowerCase() === "v") {
+				if (!input.isAutoRepeat && !input.alt && !input.shift) {
+					event.preventDefault();
+					pasteClipboard();
+				}
+			}
 		}
 	});
 }
