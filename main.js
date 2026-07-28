@@ -15,6 +15,7 @@ const CONTROL_CHARACTER = new RegExp("[\\u0000-\\u001f\\u007f]");
 let mainWindow;
 let queuedOpenRequest = null;
 let latestOpenRequestId = 0;
+let rendererReady = false;
 
 function beginOpenRequest(filePath) {
 	return {
@@ -109,11 +110,17 @@ function sendDocument(document) {
 	}
 }
 
-async function openDocument(filePath) {
-	const request = beginOpenRequest(filePath);
+async function deliverOpenRequest(request) {
 	try {
 		const document = await readOpenRequest(request);
 		if (document) {
+			// A reload or an initial page load may have begun while the file was
+			// being read. Keep the request for did-finish-load instead of sending
+			// an IPC message before the new renderer has installed its listener.
+			if (!rendererReady) {
+				queuedOpenRequest = request;
+				return;
+			}
 			sendDocument(document);
 		}
 	} catch (error) {
@@ -127,6 +134,15 @@ async function openDocument(filePath) {
 			detail: error.message,
 		});
 	}
+}
+
+async function openDocument(filePath) {
+	const request = beginOpenRequest(filePath);
+	if (!rendererReady) {
+		queuedOpenRequest = request;
+		return;
+	}
+	await deliverOpenRequest(request);
 }
 
 function buildMenu() {
@@ -202,6 +218,7 @@ function buildMenu() {
 }
 
 function createWindow() {
+	rendererReady = false;
 	mainWindow = new BrowserWindow({
 		width: 920,
 		height: 760,
@@ -218,6 +235,17 @@ function createWindow() {
 		},
 	});
 
+	mainWindow.webContents.on("did-start-loading", () => {
+		rendererReady = false;
+	});
+	mainWindow.webContents.on("did-finish-load", () => {
+		rendererReady = true;
+		if (queuedOpenRequest) {
+			const request = queuedOpenRequest;
+			queuedOpenRequest = null;
+			deliverOpenRequest(request);
+		}
+	});
 	mainWindow.loadFile("renderer.html");
 	mainWindow.once("ready-to-show", () => mainWindow.show());
 	mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -230,17 +258,14 @@ function createWindow() {
 		}
 	});
 	mainWindow.on("closed", () => {
+		rendererReady = false;
 		mainWindow = null;
 	});
 }
 
 app.on("open-file", (event, filePath) => {
 	event.preventDefault();
-	if (mainWindow) {
-		openDocument(filePath);
-	} else {
-		queuedOpenRequest = beginOpenRequest(filePath);
-	}
+	openDocument(filePath);
 });
 
 app.whenReady().then(() => {
