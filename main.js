@@ -2,7 +2,7 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } = require("electron");
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 // One extension list for every route a path arrives by unasked — command line
@@ -71,6 +71,11 @@ async function readDocument(filePath) {
 async function readOpenRequest(request) {
 	if (!isLatestOpenRequest(request)) {
 		return null;
+	}
+
+	// A paste request already carries its document; there is nothing to read.
+	if (request.document) {
+		return request.document;
 	}
 
 	try {
@@ -145,6 +150,52 @@ async function openDocument(filePath) {
 	await deliverOpenRequest(request);
 }
 
+// The clipboard is read here in the main process, and only when the user picks
+// the menu item or its accelerator: the renderer is given no way to ask for a
+// read, so a compromised renderer can snoop nothing it could not already see.
+// Only the text flavour is taken, and it flows through the renderer's own
+// Markdown pipeline exactly as a file's content does — never as HTML.
+async function pasteClipboard() {
+	const content = clipboard.readText().replace(/^\uFEFF/, "");
+
+	// An empty read is also all an image-only clipboard yields; either way
+	// there is nothing to render, and the open document stays put.
+	if (content === "") {
+		return;
+	}
+
+	// The file-size cap, reused: it exists to bound the renderer's work, and
+	// pasted text reaches the renderer just as a file's content does. Length
+	// counts UTF-16 units where the file check counts bytes, but both measure
+	// the same order of magnitude, which is all the cap is for.
+	if (content.length > MAX_FILE_SIZE) {
+		await dialog.showMessageBox(mainWindow, {
+			type: "error",
+			title: "Error",
+			message: "Could not paste.",
+			detail: "Pasted text must be smaller than 10 MB.",
+		});
+		return;
+	}
+
+	// A paste is an open request whose read has already happened, so it takes
+	// an id like any other: a file open still in flight when the user pastes
+	// resolves stale and is dropped rather than replacing the pasted text.
+	const request = {
+		document: {
+			content,
+			name: "Pasted text",
+			path: "Pasted text",
+		},
+		id: ++latestOpenRequestId,
+	};
+	if (!rendererReady) {
+		queuedOpenRequest = request;
+		return;
+	}
+	await deliverOpenRequest(request);
+}
+
 function buildMenu() {
 	const template = [
 		{
@@ -174,12 +225,18 @@ function buildMenu() {
 			],
 		},
 		{
-			// The viewer has no editable text, so copying is the whole menu — but the
-			// menu must exist: on macOS the clipboard shortcuts only reach the page
-			// through menu roles, so without it Cmd+C and Cmd+A do nothing.
+			// The viewer has no editable text: Copy and Select All act on the page,
+			// and Paste — with nowhere to insert — renders the clipboard's text as a
+			// document instead. The menu must exist: on macOS the clipboard shortcuts
+			// only reach the app through menu items, so without it none of them work.
 			label: "Edit",
 			submenu: [
 				{ role: "copy" },
+				{
+					label: "Paste",
+					accelerator: "CommandOrControl+Shift+V",
+					click: () => pasteClipboard(),
+				},
 				{ role: "selectAll" },
 			],
 		},
