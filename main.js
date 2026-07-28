@@ -135,7 +135,7 @@ function buildMenu() {
 			label: "File",
 			submenu: [
 				{
-					label: "Open…",
+					label: "Open...",
 					accelerator: "CommandOrControl+O",
 					click: async () => {
 						try {
