@@ -463,6 +463,12 @@ test("an underline only makes a heading of what would have been a paragraph", ()
 	assert.equal(renderMarkdown("Title\n---"), "<h2>Title</h2>");
 	assert.equal(renderMarkdown("Title\n==="), "<h1>Title</h1>");
 
+	// The underline closes the whole paragraph, so every line of it lands in
+	// the heading — not just the one directly above.
+	assert.equal(renderMarkdown("Foo\nBar\n---"), "<h2>Foo Bar</h2>");
+	assert.equal(renderMarkdown("Foo\nBar\n==="), "<h1>Foo Bar</h1>");
+	assert.equal(renderMarkdown("before\n\nFoo\nBar\n---\nafter"), "<p>before</p>\n<h2>Foo Bar</h2>\n<p>after</p>");
+
 	// Every one of these can be followed by a thematic break, and each was swallowed
 	// into a heading while the underline was tested before the block it sits on.
 	assert.equal(renderMarkdown("- a\n---"), "<ul><li>a</li></ul>\n<hr>");

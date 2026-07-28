@@ -715,7 +715,6 @@
 
 	function isBlockStart(lines, index) {
 		const line = lines[index] || "";
-		const next = lines[index + 1] || "";
 		// Only an item with content can interrupt a paragraph — CommonMark keeps
 		// a lone marker mid-paragraph as prose, so a line of "foo\n*\nbar" stays
 		// one paragraph rather than splitting around an empty list. An ordered
@@ -728,8 +727,7 @@
 			|| /^ {0,3}(```+|~~~+)/.test(line)
 			|| /^ {0,3}>\s?/.test(line)
 			|| /^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$/.test(line)
-			|| (item !== null && item.content !== "" && (!item.ordered || item.start === 1))
-			|| (/^ {0,3}(=+|-+)\s*$/.test(next) && line.trim() !== "");
+			|| (item !== null && item.content !== "" && (!item.ordered || item.start === 1));
 	}
 
 	// Paragraph text is escaped, so an interior </p> can only be a real block
@@ -944,27 +942,37 @@
 				continue;
 			}
 
-			// Last, because a `---` underline only makes a heading of a line that would
-			// otherwise have been a paragraph. Tried any earlier it also swallows the
-			// line above a thematic break — a one-item list, a quote, another rule —
-			// since every one of those can be followed by `---`. This is the order
-			// `isBlockStart` already uses to decide where a paragraph stops.
-			// Like every block marker, an underline may be indented at most three
+			// Last: a line nothing above claimed opens a paragraph. A setext
+			// underline closes the whole paragraph as a heading — every line
+			// gathered so far, as CommonMark reads "Foo\nBar\n---" — and is
+			// judged before isBlockStart, whose thematic-break clause also
+			// matches `---`: after paragraph text the underline outranks the
+			// rule. Tried before the blocks above instead, it would swallow the
+			// line over a thematic break — a one-item list, a quote, another
+			// rule — since every one of those can be followed by `---`. Like
+			// every block marker, an underline may be indented at most three
 			// spaces; deeper it is no underline, just the paragraph continuing.
-			if (index + 1 < lines.length && /^ {0,3}(=+|-+)\s*$/.test(lines[index + 1]) && line.trim()) {
-				const level = lines[index + 1].trim()[0] === "=" ? 1 : 2;
-				output.push(`<h${level}>${renderInline(line.trim())}</h${level}>`);
-				index += 2;
-				continue;
-			}
-
 			const paragraph = [line.trimStart()];
 			index += 1;
-			while (index < lines.length && lines[index].trim() !== "" && !isBlockStart(lines, index)) {
+			let headingLevel = 0;
+			while (index < lines.length && lines[index].trim() !== "") {
+				const underline = lines[index].match(/^ {0,3}(=+|-+)\s*$/);
+				if (underline) {
+					headingLevel = underline[1][0] === "=" ? 1 : 2;
+					index += 1;
+					break;
+				}
+				if (isBlockStart(lines, index)) {
+					break;
+				}
 				paragraph.push(lines[index].trimStart());
 				index += 1;
 			}
-			output.push(`<p>${renderInline(paragraph.join("\n"))}</p>`);
+			if (headingLevel) {
+				output.push(`<h${headingLevel}>${renderInline(paragraph.join("\n").trim())}</h${headingLevel}>`);
+			} else {
+				output.push(`<p>${renderInline(paragraph.join("\n"))}</p>`);
+			}
 		}
 
 		return { html: output.join("\n"), nextIndex: index };
