@@ -122,8 +122,8 @@ async function openDocument(filePath) {
 		}
 		await dialog.showMessageBox(mainWindow, {
 			type: "error",
-			title: "Could not open file",
-			message: "Could not open that Markdown file.",
+			title: "Error",
+			message: "Could not open that file.",
 			detail: error.message,
 		});
 	}
@@ -144,7 +144,12 @@ function buildMenu() {
 								await openDocument(filePath);
 							}
 						} catch (error) {
-							await dialog.showErrorBox("Could not open file", error.message);
+							await dialog.showMessageBox(mainWindow, {
+								type: "error",
+								title: "Error",
+								message: "Could not open that file.",
+								detail: error.message,
+							});
 						}
 					},
 				},
@@ -278,8 +283,8 @@ ipcMain.on("viewer:open-dropped-file", async (_event, filePath) => {
 	if (!OPENABLE_EXTENSION.test(filePath)) {
 		await dialog.showMessageBox(mainWindow, {
 			type: "error",
-			title: "Could not open file",
-			message: "Could not open that Markdown file.",
+			title: "Error",
+			message: "Could not open that file.",
 			detail: "Only Markdown and plain text files can be dropped here.",
 		});
 		return;
