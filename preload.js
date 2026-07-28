@@ -10,5 +10,5 @@ contextBridge.exposeInMainWorld("viewer", {
 		const filePath = webUtils.getPathForFile(file);
 		ipcRenderer.send("viewer:open-dropped-file", filePath);
 	},
-	openLink: (target) => ipcRenderer.invoke("viewer:open-link", target),
+	openLink: (target) => ipcRenderer.invoke("viewer:open-link", target).catch(() => {}),
 });
