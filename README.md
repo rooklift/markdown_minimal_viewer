@@ -26,7 +26,7 @@ The dialect is a subset of CommonMark, and where the two differ it is by choice:
 - No lazy continuation: a line that belongs to a blockquote or a list item must carry its `>` marker or its indentation. An unmarked line ends the block instead of continuing its last paragraph.
 - List nesting is judged from the marker's indentation alone: any item indented deeper than its parent's marker nests under it. CommonMark instead measures against the parent's content column and would sometimes start a separate list.
 
-The viewer itself opens local files only — network (UNC) paths are refused — and only files up to 10 MB.
+The viewer itself opens local files only — network (UNC) paths are refused — and only files up to 1 MB. Genuine Markdown documents are far smaller, and the limit keeps the memory cost of a hostile, markup-dense document modest.
 
 ## Run it
 

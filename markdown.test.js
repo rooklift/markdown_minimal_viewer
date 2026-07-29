@@ -423,7 +423,7 @@ test('a "](" closes the nearest open bracket, not the first', () => {
 
 test("pathological delimiter runs render in linear time", () => {
 	// Each of these previously re-scanned the rest of the text once per delimiter,
-	// taking tens of seconds at this size and hours at the 10 MB file limit.
+	// taking tens of seconds at this size and far longer at the file size limit.
 	const cases = [
 		" _a\\_".repeat(32000),
 		"[a".repeat(80000),

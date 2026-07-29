@@ -4,7 +4,11 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } = require("electron");
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+// 1 MB covers any genuine Markdown document — the whole CommonMark spec source
+// is ~0.7 MB — while keeping the renderer's worst case modest: a hostile,
+// markup-dense document costs the parser 50–150× its size in memory, and the
+// DOM built from the result costs more again.
+const MAX_FILE_SIZE = 1 * 1024 * 1024;
 // One extension list for every route a path arrives by unasked — command line
 // and drop — so a file that opens one way opens the other. The Open dialog is
 // the user choosing deliberately, so it may offer anything.
@@ -54,7 +58,7 @@ async function readDocument(filePath) {
 	}
 
 	if (stats.size > MAX_FILE_SIZE) {
-		throw new Error("Markdown files must be smaller than 10 MB.");
+		throw new Error("Markdown files must be smaller than 1 MB.");
 	}
 
 	// Node keeps a leading UTF-8 BOM, and an invisible character in front of
@@ -173,7 +177,7 @@ async function pasteClipboard() {
 			type: "error",
 			title: "Error",
 			message: "Could not paste.",
-			detail: "Pasted text must be smaller than 10 MB.",
+			detail: "Pasted text must be smaller than 1 MB.",
 		});
 		return;
 	}
